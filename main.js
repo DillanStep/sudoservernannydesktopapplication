@@ -121,24 +121,37 @@ class DayZServerManager {
         autoUpdater.autoDownload = false; // Don't auto-download, ask user first
         autoUpdater.autoInstallOnAppQuit = true;
 
+        // Add detailed logging for debugging
+        console.log('=== AUTO-UPDATER DEBUG INFO ===');
+        console.log('Current app version:', app.getVersion());
+        console.log('App is packaged:', app.isPackaged);
+        console.log('Feed URL:', autoUpdater.getFeedURL());
+        console.log('==============================');
+
         // Auto-updater events
         autoUpdater.on('checking-for-update', () => {
-            console.log('Checking for update...');
+            console.log('🔍 AUTO-UPDATER: Checking for update...');
+            console.log('Current version:', app.getVersion());
             this.sendStatusToRenderer('Checking for updates...');
         });
 
         autoUpdater.on('update-available', (info) => {
-            console.log('Update available:', info);
+            console.log('✅ AUTO-UPDATER: Update available!', info);
+            console.log('Available version:', info.version);
+            console.log('Current version:', app.getVersion());
             this.handleUpdateAvailable(info);
         });
 
         autoUpdater.on('update-not-available', (info) => {
-            console.log('Update not available:', info);
+            console.log('❌ AUTO-UPDATER: Update not available', info);
+            console.log('Latest version:', info.version);
+            console.log('Current version:', app.getVersion());
             this.sendStatusToRenderer('Application is up to date');
         });
 
         autoUpdater.on('error', (err) => {
-            console.log('Error in auto-updater:', err);
+            console.error('💥 AUTO-UPDATER ERROR:', err);
+            console.log('Error details:', err.message);
             this.sendStatusToRenderer('No New Update Found, Up To date :)');
         });
 
@@ -817,12 +830,23 @@ class Missions
         // Auto-updater IPC handlers
         ipcMain.handle('check-for-updates', async () => {
             try {
+                console.log('🔍 MANUAL UPDATE CHECK TRIGGERED');
+                console.log('NODE_ENV:', process.env.NODE_ENV);
+                console.log('Current version:', app.getVersion());
+                console.log('App is packaged:', app.isPackaged);
+                console.log('Feed URL:', autoUpdater.getFeedURL());
+                
                 if (process.env.NODE_ENV === 'development') {
+                    console.log('❌ Development mode - updates disabled');
                     return { success: false, error: 'Updates not available in development mode' };
                 }
-                return autoUpdater.checkForUpdatesAndNotify();
+                
+                console.log('🚀 Starting update check...');
+                const result = await autoUpdater.checkForUpdatesAndNotify();
+                console.log('📦 Update check result:', result);
+                return { success: true, result };
             } catch (error) {
-                console.error('Error checking for updates:', error);
+                console.error('💥 Error checking for updates:', error);
                 return { success: false, error: error.message };
             }
         });
