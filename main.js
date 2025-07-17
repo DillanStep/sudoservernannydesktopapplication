@@ -13,7 +13,13 @@ class DayZServerManager {
         this.mainWindow = null;
         this.splashWindow = null;
         this.serverProcesses = new Map();
-        this.configPath = path.join(__dirname, 'config');
+        
+        // Use user data directory for configuration files when installed
+        // This ensures configs are stored in a writable location
+        this.configPath = app.isPackaged 
+            ? path.join(app.getPath('userData'), 'config')
+            : path.join(__dirname, 'config');
+            
         this.serversConfigPath = path.join(this.configPath, 'servers.json');
         this.settingsConfigPath = path.join(this.configPath, 'settings.json');
         this.modVersionsConfigPath = path.join(this.configPath, 'mod-versions.json');
@@ -193,9 +199,17 @@ class DayZServerManager {
             this.sendSplashProgress(10, 'Setting up auto-updater...');
             this.setupAutoUpdater();
             
-            // Ensure config directory exists
+            // Ensure config directory exists with better error handling
             this.sendSplashProgress(20, 'Creating configuration directories...');
-            await fs.ensureDir(this.configPath);
+            console.log('Config path:', this.configPath);
+            
+            try {
+                await fs.ensureDir(this.configPath);
+                console.log('Config directory created successfully');
+            } catch (dirError) {
+                console.error('Failed to create config directory:', dirError);
+                throw new Error(`Cannot create config directory: ${dirError.message}`);
+            }
             
             // Load or create default configurations
             this.sendSplashProgress(40, 'Loading configuration files...');
@@ -222,33 +236,77 @@ class DayZServerManager {
 
     async loadConfigurations() {
         try {
-            // Load settings
-            if (await fs.pathExists(this.settingsConfigPath)) {
-                this.settings = await fs.readJson(this.settingsConfigPath);
-            } else {
-                this.settings = this.defaultSettings;
-                await fs.writeJson(this.settingsConfigPath, this.settings, { spaces: 2 });
+            console.log('Loading configurations from:', this.configPath);
+            
+            // Load settings with better error handling
+            try {
+                if (await fs.pathExists(this.settingsConfigPath)) {
+                    this.settings = await fs.readJson(this.settingsConfigPath);
+                    console.log('Settings loaded successfully');
+                } else {
+                    console.log('Settings file not found, creating default settings');
+                    this.settings = { ...this.defaultSettings };
+                    await fs.writeJson(this.settingsConfigPath, this.settings, { spaces: 2 });
+                    console.log('Default settings created');
+                }
+            } catch (settingsError) {
+                console.error('Error with settings file:', settingsError);
+                this.settings = { ...this.defaultSettings };
+                try {
+                    await fs.writeJson(this.settingsConfigPath, this.settings, { spaces: 2 });
+                } catch (writeError) {
+                    console.error('Failed to write default settings:', writeError);
+                }
             }
 
-            // Load servers
-            if (await fs.pathExists(this.serversConfigPath)) {
-                this.servers = await fs.readJson(this.serversConfigPath);
-                // Fix any servers with missing folder names
-                await this.fixServerConfigurations();
-            } else {
+            // Load servers with better error handling
+            try {
+                if (await fs.pathExists(this.serversConfigPath)) {
+                    this.servers = await fs.readJson(this.serversConfigPath);
+                    console.log('Servers configuration loaded successfully');
+                    // Fix any servers with missing folder names
+                    await this.fixServerConfigurations();
+                } else {
+                    console.log('Servers file not found, creating empty servers array');
+                    this.servers = [];
+                    await fs.writeJson(this.serversConfigPath, this.servers, { spaces: 2 });
+                    console.log('Empty servers configuration created');
+                }
+            } catch (serversError) {
+                console.error('Error with servers file:', serversError);
                 this.servers = [];
-                await fs.writeJson(this.serversConfigPath, this.servers, { spaces: 2 });
+                try {
+                    await fs.writeJson(this.serversConfigPath, this.servers, { spaces: 2 });
+                } catch (writeError) {
+                    console.error('Failed to write default servers:', writeError);
+                }
             }
 
-            // Load mod versions
-            if (await fs.pathExists(this.modVersionsConfigPath)) {
-                this.modVersions = await fs.readJson(this.modVersionsConfigPath);
-            } else {
+            // Load mod versions with better error handling
+            try {
+                if (await fs.pathExists(this.modVersionsConfigPath)) {
+                    this.modVersions = await fs.readJson(this.modVersionsConfigPath);
+                    console.log('Mod versions loaded successfully');
+                } else {
+                    console.log('Mod versions file not found, creating empty object');
+                    this.modVersions = {};
+                    await fs.writeJson(this.modVersionsConfigPath, this.modVersions, { spaces: 2 });
+                    console.log('Empty mod versions created');
+                }
+            } catch (modVersionsError) {
+                console.error('Error with mod versions file:', modVersionsError);
                 this.modVersions = {};
-                await fs.writeJson(this.modVersionsConfigPath, this.modVersions, { spaces: 2 });
+                try {
+                    await fs.writeJson(this.modVersionsConfigPath, this.modVersions, { spaces: 2 });
+                } catch (writeError) {
+                    console.error('Failed to write default mod versions:', writeError);
+                }
             }
+            
+            console.log('Configuration loading completed');
         } catch (error) {
             console.error('Error loading configurations:', error);
+            throw error; // Re-throw so initialization can handle it
         }
     }
 
