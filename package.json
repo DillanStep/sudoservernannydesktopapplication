@@ -41,15 +41,11 @@
         "to": "config"
       }
     ],
-    "repository": {
-      "type": "git",
-      "url": "https://github.com/dillanstep/dayz-server-manager.git"
-    },
     "publish": [
       {
         "provider": "github",
         "owner": "dillanstep",
-        "repo": "dayz-server-manager",
+        "repo": "sudoservernannydesktopapplication",
         "private": false,
         "releaseType": "release"
       }
@@ -97,6 +93,10 @@
   ],
   "author": "DayZ Server Manager Team",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dillanstep/sudoservernannydesktopapplication.git"
+  },
   "type": "commonjs",
   "devDependencies": {
     "electron": "^37.2.3",
