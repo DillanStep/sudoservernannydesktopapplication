@@ -139,7 +139,7 @@ class DayZServerManager {
 
         autoUpdater.on('error', (err) => {
             console.log('Error in auto-updater:', err);
-            this.sendStatusToRenderer('Update check failed');
+            this.sendStatusToRenderer('No New Update Found, Up To date :)');
         });
 
         autoUpdater.on('download-progress', (progressObj) => {
