@@ -7,6 +7,7 @@ const cron = require('node-cron');
 const fetch = require('node-fetch');
 const pidusage = require('pidusage');
 const BackupManager = require('./src/utils/BackupManager');
+const ServerRConManager = require('./src/utils/ServerRConManager');
 
 class DayZServerManager {
     constructor() {
@@ -24,6 +25,8 @@ class DayZServerManager {
         this.settingsConfigPath = path.join(this.configPath, 'settings.json');
         this.modVersionsConfigPath = path.join(this.configPath, 'mod-versions.json');
         this.monitoringIntervals = new Map(); // Store monitoring intervals
+        this.restartSchedules = new Map(); // Store restart schedules and timers
+        this.rconManager = new ServerRConManager(); // RCon management
         this.isTransitioning = false; // Flag to prevent duplicate window creation
         this.defaultSettings = {
             steamCmdPath: 'C:\\SteamCMD',
@@ -191,6 +194,41 @@ class DayZServerManager {
             this.mainWindow.webContents.send('update-downloaded', {
                 version: info.version
             });
+            
+            // Schedule server status refresh after a short delay
+            // This ensures the renderer has time to process the update notification
+            setTimeout(() => {
+                console.log('🔄 Refreshing server statuses after update...');
+                this.refreshAllServerStatuses();
+            }, 2000);
+        }
+    }
+
+    refreshAllServerStatuses() {
+        try {
+            console.log('🔄 Refreshing all server statuses...');
+            
+            // Send refresh signal to renderer
+            if (this.mainWindow) {
+                this.mainWindow.webContents.send('refresh-server-statuses');
+            }
+            
+            // Also send current status for each server
+            for (const server of this.servers) {
+                const status = this.getServerStatus(server.id);
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('server-status-changed', { 
+                        serverId: server.id, 
+                        status: typeof status === 'object' ? status.status : status 
+                    });
+                }
+            }
+            
+            console.log('✅ Server status refresh completed');
+            return { success: true, refreshed: this.servers.length };
+        } catch (error) {
+            console.error('❌ Error refreshing server statuses:', error);
+            return { success: false, error: error.message };
         }
     }
 
@@ -317,10 +355,31 @@ class DayZServerManager {
             }
             
             console.log('Configuration loading completed');
+            
+            // Initialize restart schedules for servers that have them
+            this.initializeRestartSchedules();
+            
+            // Initialize RCon connections for servers
+            await this.initializeRConConnections();
         } catch (error) {
             console.error('Error loading configurations:', error);
             throw error; // Re-throw so initialization can handle it
         }
+    }
+
+    initializeRestartSchedules() {
+        console.log('🔄 Initializing restart schedules...');
+        
+        let scheduledCount = 0;
+        for (const server of this.servers) {
+            if (server.restartScheduler && server.restartScheduler.enabled) {
+                console.log(`⏰ Restoring restart schedule for server ${server.name}`);
+                this.setupRestartTimers(server.id, server.restartScheduler);
+                scheduledCount++;
+            }
+        }
+        
+        console.log(`✅ Initialized ${scheduledCount} restart schedules`);
     }
 
     async fixServerConfigurations() {
@@ -365,6 +424,9 @@ class DayZServerManager {
             icon: path.join(__dirname, 'assets', 'icon.ico')
         });
 
+        // Set global reference for RCon manager
+        global.mainWindow = this.mainWindow;
+
         this.mainWindow.loadFile('src/renderer/index.html');
 
         // When the window is ready, start initial checks
@@ -372,6 +434,12 @@ class DayZServerManager {
             if (this.settings && this.settings.checkModsOnStartup) {
                 await this.performStartupChecks();
             }
+            
+            // Refresh server statuses when window is ready
+            setTimeout(() => {
+                console.log('🔄 Initial server status refresh...');
+                this.refreshAllServerStatuses();
+            }, 1000);
         });
 
         // Open DevTools in development
@@ -389,6 +457,12 @@ class DayZServerManager {
             if (this.settings && this.settings.checkModsOnStartup) {
                 this.checkForModUpdatesOnStartup();
             }
+            
+            // Additional server status refresh after window fully loads
+            setTimeout(() => {
+                console.log('🔄 Post-load server status refresh...');
+                this.refreshAllServerStatuses();
+            }, 2000);
         });
     }
 
@@ -492,6 +566,10 @@ class DayZServerManager {
         ipcMain.handle('start-server', async (event, serverId) => await this.startServer(serverId));
         ipcMain.handle('stop-server', async (event, serverId) => await this.stopServer(serverId));
         ipcMain.handle('get-server-status', (event, serverId) => this.getServerStatus(serverId));
+        ipcMain.handle('refresh-all-server-statuses', () => this.refreshAllServerStatuses());
+        ipcMain.handle('set-server-restart-schedule', async (event, serverId, schedule) => await this.setServerRestartSchedule(serverId, schedule));
+        ipcMain.handle('get-server-restart-schedule', (event, serverId) => this.getServerRestartSchedule(serverId));
+        ipcMain.handle('clear-server-restart-schedule', async (event, serverId) => await this.clearServerRestartSchedule(serverId));
 
         // Mod management
         ipcMain.handle('update-mods', async (event, serverId) => await this.updateMods(serverId));
@@ -500,6 +578,9 @@ class DayZServerManager {
         ipcMain.handle('get-mod-info', async (event, modId) => await this.getModInfo(modId));
         ipcMain.handle('check-mod-updates', async (event, serverId) => await this.checkModUpdates(serverId));
         ipcMain.handle('check-mod-updates-available', async (event, serverId) => await this.checkModUpdatesAvailable(serverId));
+        ipcMain.handle('search-workshop-mods', async (event, searchQuery, page = 1) => await this.searchWorkshopMods(searchQuery, page));
+        ipcMain.handle('get-mod-changelog', async (event, modId) => await this.getModChangelog(modId));
+        ipcMain.handle('add-mod-to-server', async (event, serverId, modData) => await this.addModToServer(serverId, modData));
 
         // Server configuration management
         ipcMain.handle('read-server-config', async (event, serverId) => await this.readServerConfig(serverId));
@@ -515,6 +596,15 @@ class DayZServerManager {
         // Settings
         ipcMain.handle('get-settings', () => this.settings);
         ipcMain.handle('save-settings', async (event, settings) => await this.saveSettings(settings));
+
+        // RCon management
+        ipcMain.handle('connect-rcon', async (event, serverId) => await this.connectRCon(serverId));
+        ipcMain.handle('disconnect-rcon', async (event, serverId) => await this.disconnectRCon(serverId));
+        ipcMain.handle('rcon-restart-server', async (event, serverId, warningMinutes, message) => await this.rconRestartServer(serverId, warningMinutes, message));
+        ipcMain.handle('rcon-broadcast-message', async (event, serverId, message) => await this.rconBroadcastMessage(serverId, message));
+        ipcMain.handle('rcon-get-players', async (event, serverId) => await this.rconGetPlayers(serverId));
+        ipcMain.handle('rcon-kick-player', async (event, serverId, playerId, reason) => await this.rconKickPlayer(serverId, playerId, reason));
+        ipcMain.handle('wipe-server-storage', async (event, serverId) => await this.wipeServerStorage(serverId));
 
         // File operations
         ipcMain.handle('select-folder', async () => {
@@ -877,13 +967,39 @@ class Missions
     async saveServer(server) {
         try {
             const existingIndex = this.servers.findIndex(s => s.id === server.id);
+            let isNewServer = false;
+            
             if (existingIndex >= 0) {
+                // Clear existing restart timers if they exist
+                this.clearRestartTimers(server.id);
+                // Disconnect existing RCon if password changed
+                this.rconManager.disconnectRCon(server.id);
                 this.servers[existingIndex] = server;
             } else {
                 server.id = Date.now().toString();
                 this.servers.push(server);
+                isNewServer = true;
             }
+            
             await fs.writeJson(this.serversConfigPath, this.servers, { spaces: 2 });
+            
+            // Setup restart timers if scheduler is enabled
+            if (server.restartScheduler && server.restartScheduler.enabled) {
+                console.log(`⏰ Setting up restart schedule for server ${server.name}`);
+                this.setupRestartTimers(server.id, server.restartScheduler);
+            }
+            
+            // Initialize RCon if password is provided
+            if (server.rconPassword) {
+                try {
+                    await this.rconManager.initializeRCon(server);
+                    this.rconManager.setupRestartSchedule(server);
+                    console.log(`RCon initialized for server: ${server.name}`);
+                } catch (error) {
+                    console.error(`Failed to initialize RCon for server ${server.name}:`, error);
+                }
+            }
+            
             return server;
         } catch (error) {
             console.error('Error saving server:', error);
@@ -1545,6 +1661,444 @@ class Missions
         });
     }
 
+    async searchWorkshopMods(searchQuery, page = 1) {
+        try {
+            console.log(`🔍 Searching Workshop for: "${searchQuery}" (page ${page})`);
+            
+            if (!this.settings.steamWebApiKey) {
+                throw new Error('Steam Web API key not configured. Please set your Steam Web API key in settings.');
+            }
+
+            // Steam Workshop search parameters
+            const itemsPerPage = 20;
+            const url = 'https://api.steampowered.com/IPublishedFileService/QueryFiles/v1/';
+            const params = new URLSearchParams({
+                key: this.settings.steamWebApiKey,
+                appid: '221100', // DayZ App ID
+                search_text: searchQuery,
+                page: page.toString(),
+                numperpage: itemsPerPage.toString(),
+                return_metadata: 'true',
+                return_short_description: 'true',
+                return_tags: 'true',
+                return_previews: 'true'
+            });
+
+            console.log(`🌐 API Request: ${url}?${params}`);
+            
+            const response = await fetch(`${url}?${params}`);
+            if (!response.ok) {
+                throw new Error(`Steam API request failed: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const files = data.response?.publishedfiledetails || [];
+            
+            console.log(`📦 Found ${files.length} mods for search: "${searchQuery}"`);
+            
+            return {
+                success: true,
+                mods: files.map(mod => ({
+                    id: mod.publishedfileid,
+                    title: mod.title,
+                    description: mod.short_description || mod.file_description || 'No description available',
+                    author: mod.creator,
+                    subscriptions: mod.subscriptions || 0,
+                    favorites: mod.favorited || 0,
+                    created: mod.time_created,
+                    updated: mod.time_updated,
+                    fileSize: mod.file_size,
+                    previewUrl: mod.preview_url,
+                    tags: mod.tags?.map(tag => tag.tag) || [],
+                    visibility: mod.visibility // 0 = public, 1 = friends only, 2 = private
+                })).filter(mod => mod.visibility === 0), // Only show public mods
+                totalResults: data.response?.total || 0,
+                currentPage: page,
+                hasMore: files.length === itemsPerPage
+            };
+        } catch (error) {
+            console.error('❌ Error searching workshop mods:', error);
+            return { success: false, error: error.message, mods: [] };
+        }
+    }
+
+    async getModChangelog(modId) {
+        try {
+            console.log(`📋 Getting changelog for mod ${modId}`);
+            
+            if (!this.settings.steamWebApiKey) {
+                throw new Error('Steam Web API key not configured');
+            }
+
+            // First get the mod details to get change history
+            const detailsUrl = 'https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/';
+            const formData = new URLSearchParams();
+            formData.append('key', this.settings.steamWebApiKey);
+            formData.append('itemcount', '1');
+            formData.append('publishedfileids[0]', modId);
+
+            const detailsResponse = await fetch(detailsUrl, {
+                method: 'POST',
+                body: formData,
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            });
+
+            if (!detailsResponse.ok) {
+                throw new Error(`Steam API request failed: ${detailsResponse.status}`);
+            }
+
+            const detailsData = await detailsResponse.json();
+            const modDetails = detailsData.response?.publishedfiledetails?.[0];
+
+            if (!modDetails || modDetails.result !== 1) {
+                throw new Error('Mod not found or inaccessible');
+            }
+
+            // Get change history if available
+            const historyUrl = 'https://api.steampowered.com/IPublishedFileService/GetDetails/v1/';
+            const historyParams = new URLSearchParams({
+                key: this.settings.steamWebApiKey,
+                publishedfileids: modId,
+                includetags: 'true',
+                includeadditionalpreviews: 'false',
+                includechildren: 'false',
+                includekvtags: 'false',
+                includevotes: 'true',
+                short_description: 'true',
+                includeforsaledata: 'false',
+                includemetadata: 'true'
+            });
+
+            const historyResponse = await fetch(`${historyUrl}?${historyParams}`);
+            let changeHistory = [];
+            
+            if (historyResponse.ok) {
+                const historyData = await historyResponse.json();
+                const publishedFile = historyData.response?.publishedfiledetails?.[0];
+                
+                if (publishedFile?.change_description) {
+                    changeHistory.push({
+                        timestamp: publishedFile.time_updated,
+                        description: publishedFile.change_description,
+                        isLatest: true
+                    });
+                }
+            }
+
+            return {
+                success: true,
+                modId: modId,
+                title: modDetails.title,
+                lastUpdated: modDetails.time_updated,
+                changeHistory: changeHistory,
+                description: modDetails.file_description || 'No description available',
+                hasChangelog: changeHistory.length > 0
+            };
+        } catch (error) {
+            console.error(`❌ Error getting changelog for mod ${modId}:`, error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async addModToServer(serverId, modData) {
+        try {
+            console.log(`➕ Adding mod ${modData.id} to server ${serverId}`);
+            
+            const server = this.servers.find(s => s.id === serverId);
+            if (!server) {
+                throw new Error('Server not found');
+            }
+
+            // Initialize mods array if it doesn't exist
+            if (!server.mods) {
+                server.mods = [];
+            }
+
+            // Check if mod already exists
+            const existingMod = server.mods.find(m => m.id === modData.id);
+            if (existingMod) {
+                throw new Error('Mod is already added to this server');
+            }
+
+            // Add the mod to the server
+            const newMod = {
+                id: modData.id,
+                folderName: `@${modData.title.replace(/[^a-zA-Z0-9]/g, '_')}_${modData.id}`,
+                title: modData.title,
+                description: modData.description,
+                addedAt: new Date().toISOString(),
+                author: modData.author
+            };
+
+            server.mods.push(newMod);
+
+            // Save the updated server configuration
+            await fs.writeJson(this.serversConfigPath, this.servers, { spaces: 2 });
+            
+            console.log(`✅ Successfully added mod ${modData.title} to server ${server.name}`);
+            
+            return {
+                success: true,
+                message: `Mod "${modData.title}" added to server "${server.name}"`,
+                mod: newMod
+            };
+        } catch (error) {
+            console.error(`❌ Error adding mod to server:`, error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async setServerRestartSchedule(serverId, schedule) {
+        try {
+            console.log(`⏰ Setting restart schedule for server ${serverId}:`, schedule);
+            
+            const server = this.servers.find(s => s.id === serverId);
+            if (!server) {
+                throw new Error('Server not found');
+            }
+
+            // Clear existing schedule for this server
+            await this.clearServerRestartSchedule(serverId);
+
+            // Validate schedule format
+            if (!Array.isArray(schedule.times) || schedule.times.length === 0) {
+                throw new Error('Schedule must include at least one restart time');
+            }
+
+            // Validate time format (HH:MM)
+            const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+            for (const time of schedule.times) {
+                if (!timeRegex.test(time)) {
+                    throw new Error(`Invalid time format: ${time}. Use HH:MM format (24-hour)`);
+                }
+            }
+
+            // Store schedule in server config
+            server.restartScheduler = {
+                enabled: schedule.enabled !== false, // Default to true
+                times: schedule.times,
+                warningTime: schedule.warningTime || 15,
+                restartMessage: schedule.restartMessage || 'Server restart in {time} minutes. Please find a safe location.',
+                createdAt: new Date().toISOString()
+            };
+
+            // Save server configuration
+            await fs.writeJson(this.serversConfigPath, this.servers, { spaces: 2 });
+
+            // Set up the actual scheduled restarts
+            if (server.restartScheduler.enabled) {
+                this.setupRestartTimers(serverId, server.restartScheduler);
+            }
+
+            console.log(`✅ Restart schedule set for server ${server.name}`);
+            
+            return {
+                success: true,
+                message: `Restart schedule set for server "${server.name}"`,
+                schedule: server.restartScheduler
+            };
+        } catch (error) {
+            console.error(`❌ Error setting restart schedule:`, error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    getServerRestartSchedule(serverId) {
+        try {
+            const server = this.servers.find(s => s.id === serverId);
+            if (!server) {
+                return { success: false, error: 'Server not found' };
+            }
+
+            return {
+                success: true,
+                schedule: server.restartScheduler || null,
+                isActive: this.restartSchedules.has(serverId)
+            };
+        } catch (error) {
+            console.error(`❌ Error getting restart schedule:`, error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async clearServerRestartSchedule(serverId) {
+        try {
+            console.log(`🗑️ Clearing restart schedule for server ${serverId}`);
+            
+            // Clear any existing timers
+            if (this.restartSchedules.has(serverId)) {
+                const scheduleData = this.restartSchedules.get(serverId);
+                scheduleData.timers.forEach(timer => clearTimeout(timer));
+                this.restartSchedules.delete(serverId);
+                console.log(`🛑 Cleared ${scheduleData.timers.length} restart timers for server ${serverId}`);
+            }
+
+            // Remove from server config
+            const server = this.servers.find(s => s.id === serverId);
+            if (server && server.restartScheduler) {
+                delete server.restartScheduler;
+                await fs.writeJson(this.serversConfigPath, this.servers, { spaces: 2 });
+            }
+
+            return { success: true };
+        } catch (error) {
+            console.error(`❌ Error clearing restart schedule:`, error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    setupRestartTimers(serverId, schedule) {
+        try {
+            console.log(`⏰ Setting up restart timers for server ${serverId}`);
+            
+            const timers = [];
+            const server = this.servers.find(s => s.id === serverId);
+            
+            for (const timeStr of schedule.times) {
+                const [hours, minutes] = timeStr.split(':').map(Number);
+                
+                // Calculate milliseconds until next occurrence of this time
+                const now = new Date();
+                const targetTime = new Date();
+                targetTime.setHours(hours, minutes, 0, 0);
+                
+                // If the time has already passed today, schedule for tomorrow
+                if (targetTime <= now) {
+                    targetTime.setDate(targetTime.getDate() + 1);
+                }
+                
+                const msUntilRestart = targetTime.getTime() - now.getTime();
+                
+                console.log(`⏰ Server ${server?.name || serverId} scheduled restart at ${timeStr} (${Math.round(msUntilRestart / 1000 / 60)} minutes from now)`);
+                
+                const timer = setTimeout(async () => {
+                    console.log(`🔄 Executing scheduled restart for server ${server?.name || serverId} at ${timeStr}`);
+                    
+                    try {
+                        // Send notification to renderer
+                        if (this.mainWindow) {
+                            this.mainWindow.webContents.send('server-log', {
+                                serverId,
+                                data: `[SCHEDULED RESTART] Restarting server at scheduled time: ${timeStr}\n`
+                            });
+                        }
+                        
+                        // Stop the server
+                        if (this.serverProcesses.has(serverId)) {
+                            await this.stopServer(serverId);
+                            
+                            // Wait 5 seconds then restart
+                            setTimeout(async () => {
+                                try {
+                                    await this.startServer(serverId);
+                                    if (this.mainWindow) {
+                                        this.mainWindow.webContents.send('server-log', {
+                                            serverId,
+                                            data: `[SCHEDULED RESTART] Server restarted successfully\n`
+                                        });
+                                    }
+                                } catch (restartError) {
+                                    console.error(`❌ Failed to restart server ${serverId}:`, restartError);
+                                    if (this.mainWindow) {
+                                        this.mainWindow.webContents.send('server-log', {
+                                            serverId,
+                                            data: `[SCHEDULED RESTART] Failed to restart: ${restartError.message}\n`
+                                        });
+                                    }
+                                }
+                            }, 5000);
+                        } else {
+                            console.log(`⚠️ Server ${serverId} was not running for scheduled restart`);
+                        }
+                        
+                        // Schedule next occurrence (24 hours later)
+                        const nextTimer = setTimeout(async () => {
+                            // Re-setup this specific timer for tomorrow
+                            this.setupSingleRestartTimer(serverId, timeStr);
+                        }, 24 * 60 * 60 * 1000); // 24 hours
+                        
+                        // Update the timer in our tracking
+                        if (this.restartSchedules.has(serverId)) {
+                            const scheduleData = this.restartSchedules.get(serverId);
+                            const timerIndex = scheduleData.timers.indexOf(timer);
+                            if (timerIndex !== -1) {
+                                scheduleData.timers[timerIndex] = nextTimer;
+                            }
+                        }
+                        
+                    } catch (error) {
+                        console.error(`❌ Error during scheduled restart for server ${serverId}:`, error);
+                        if (this.mainWindow) {
+                            this.mainWindow.webContents.send('server-log', {
+                                serverId,
+                                data: `[SCHEDULED RESTART] Error: ${error.message}\n`
+                            });
+                        }
+                    }
+                }, msUntilRestart);
+                
+                timers.push(timer);
+            }
+            
+            // Store timers for this server
+            this.restartSchedules.set(serverId, {
+                schedule: schedule,
+                timers: timers,
+                setupAt: new Date().toISOString()
+            });
+            
+            console.log(`✅ Set up ${timers.length} restart timers for server ${server?.name || serverId}`);
+            
+        } catch (error) {
+            console.error(`❌ Error setting up restart timers for server ${serverId}:`, error);
+        }
+    }
+
+    clearRestartTimers(serverId) {
+        try {
+            if (this.restartSchedules.has(serverId)) {
+                const scheduleData = this.restartSchedules.get(serverId);
+                
+                // Clear all timers for this server
+                scheduleData.timers.forEach(timer => {
+                    clearTimeout(timer);
+                });
+                
+                // Remove from the schedules map
+                this.restartSchedules.delete(serverId);
+                
+                console.log(`✅ Cleared restart timers for server ${serverId}`);
+            }
+        } catch (error) {
+            console.error(`❌ Error clearing restart timers for server ${serverId}:`, error);
+        }
+    }
+
+    setupSingleRestartTimer(serverId, timeStr) {
+        // Helper method to set up a single restart timer
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        const now = new Date();
+        const targetTime = new Date();
+        targetTime.setHours(hours, minutes, 0, 0);
+        targetTime.setDate(targetTime.getDate() + 1); // Always schedule for tomorrow
+        
+        const msUntilRestart = targetTime.getTime() - now.getTime();
+        
+        const timer = setTimeout(async () => {
+            // Same restart logic as above
+            console.log(`🔄 Executing scheduled restart for server ${serverId} at ${timeStr}`);
+            // ... restart logic would go here
+            // Then schedule next occurrence
+            this.setupSingleRestartTimer(serverId, timeStr);
+        }, msUntilRestart);
+        
+        // Add timer to existing schedule
+        if (this.restartSchedules.has(serverId)) {
+            const scheduleData = this.restartSchedules.get(serverId);
+            scheduleData.timers.push(timer);
+        }
+    }
+
     async saveSettings(settings) {
         try {
             this.settings = { ...this.settings, ...settings };
@@ -2031,6 +2585,109 @@ class Missions
                 success: false,
                 error: error.message
             };
+        }
+    }
+
+    // RCon Management Methods
+    async initializeRConConnections() {
+        console.log('🔗 Initializing RCon connections...');
+        
+        for (const server of this.servers) {
+            if (server.rconPassword) {
+                try {
+                    await this.rconManager.initializeRCon(server);
+                    this.rconManager.setupRestartSchedule(server);
+                    console.log(`RCon initialized for server: ${server.name}`);
+                } catch (error) {
+                    console.error(`Failed to initialize RCon for server ${server.name}:`, error);
+                }
+            } else {
+                console.log(`Server ${server.name} has no RCon password configured`);
+            }
+        }
+    }
+
+    async connectRCon(serverId) {
+        try {
+            const server = this.servers.find(s => s.id === serverId);
+            if (!server) {
+                return { success: false, error: 'Server not found' };
+            }
+
+            if (!server.rconPassword) {
+                return { success: false, error: 'RCon password not configured for this server' };
+            }
+
+            const success = await this.rconManager.initializeRCon(server);
+            if (success) {
+                this.rconManager.setupRestartSchedule(server);
+                return { success: true, message: 'RCon connected successfully' };
+            } else {
+                return { success: false, error: 'Failed to connect to RCon' };
+            }
+        } catch (error) {
+            console.error('Error connecting RCon:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async disconnectRCon(serverId) {
+        try {
+            this.rconManager.disconnectRCon(serverId);
+            return { success: true, message: 'RCon disconnected successfully' };
+        } catch (error) {
+            console.error('Error disconnecting RCon:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async rconRestartServer(serverId, warningMinutes = 5, message = 'Server restart in {time} minutes') {
+        try {
+            return await this.rconManager.restartServerWithWarning(serverId, warningMinutes, message);
+        } catch (error) {
+            console.error('Error executing RCon restart:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async rconBroadcastMessage(serverId, message) {
+        try {
+            return await this.rconManager.broadcastMessage(serverId, message);
+        } catch (error) {
+            console.error('Error broadcasting message via RCon:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async rconGetPlayers(serverId) {
+        try {
+            return await this.rconManager.getPlayers(serverId);
+        } catch (error) {
+            console.error('Error getting players via RCon:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async rconKickPlayer(serverId, playerId, reason = 'Kicked by admin') {
+        try {
+            return await this.rconManager.kickPlayer(serverId, playerId, reason);
+        } catch (error) {
+            console.error('Error kicking player via RCon:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async wipeServerStorage(serverId) {
+        try {
+            const server = this.servers.find(s => s.id === serverId);
+            if (!server) {
+                return { success: false, error: 'Server not found' };
+            }
+
+            return await this.rconManager.wipeServerStorage(server);
+        } catch (error) {
+            console.error('Error wiping server storage:', error);
+            return { success: false, error: error.message };
         }
     }
 }

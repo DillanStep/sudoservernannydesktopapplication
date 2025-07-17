@@ -14,6 +14,9 @@
             <div class="header-content">
                 <h1><i class="fas fa-server"></i> SUDO Server Nanny</h1>
                 <div class="header-actions">
+                    <button class="btn btn-info" id="checkUpdatesBtn">
+                        <i class="fas fa-download"></i> Check Updates
+                    </button>
                     <button class="btn btn-primary" id="addServerBtn">
                         <i class="fas fa-plus"></i> Add Server
                     </button>
@@ -88,6 +91,9 @@
                             </button>
                             <button class="btn btn-info" id="updateModsBtn">
                                 <i class="fas fa-sync"></i> Update All Mods
+                            </button>
+                            <button class="btn btn-warning" id="testChangelogBtn">
+                                <i class="fas fa-file-alt"></i> Test Changelog
                             </button>
                             <button class="btn btn-success" id="copyAllModsBtn">
                                 <i class="fas fa-copy"></i> Copy All Mods
@@ -220,6 +226,18 @@
                             <input type="password" id="steamPassword" class="form-control">
                         </div>
                     </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="rconPassword">RCon Password</label>
+                            <input type="password" id="rconPassword" class="form-control" placeholder="Optional - for remote server management">
+                            <small class="form-text text-muted">BattlEye RCon password for server restart management</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="rconPort">RCon Port</label>
+                            <input type="number" id="rconPort" class="form-control" placeholder="Auto (Game Port + 1)">
+                            <small class="form-text text-muted">BattlEye RCon port (default: game port + 1)</small>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label for="modList">Mod List (one per line: ModID,FolderName)</label>
                         <textarea id="modList" class="form-control" rows="5" 
@@ -333,6 +351,44 @@
                                 <label for="limitFPS">Limit FPS</label>
                                 <input type="number" id="limitFPS" class="form-control" placeholder="50" min="10" max="1000">
                                 <small class="form-text text-muted">Server FPS limit (optional)</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Restart Scheduler Section -->
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="enableRestartScheduler"> 
+                                Enable Restart Scheduler
+                            </label>
+                            <small class="form-text text-muted">Schedule automatic restarts at specific times</small>
+                        </div>
+                        
+                        <div id="restartSchedulerContainer" class="restart-scheduler-container" style="display: none;">
+                            <div class="restart-times-header">
+                                <h5>Scheduled Restart Times</h5>
+                                <button type="button" class="btn btn-sm btn-primary" id="addRestartTimeBtn">
+                                    <i class="fas fa-plus"></i> Add Time
+                                </button>
+                            </div>
+                            
+                            <div id="restartTimesList" class="restart-times-list">
+                                <!-- Restart times will be added here dynamically -->
+                            </div>
+                            
+                            <div class="restart-scheduler-options">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="restartWarningTime">Warning Time (minutes)</label>
+                                        <input type="number" id="restartWarningTime" class="form-control" value="15" min="1" max="60">
+                                        <small class="form-text text-muted">How many minutes before restart to warn players</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="restartMessage">Restart Message</label>
+                                        <input type="text" id="restartMessage" class="form-control" 
+                                               value="Server restart in {time} minutes. Please find a safe location.">
+                                        <small class="form-text text-muted">Message to display to players ({time} will be replaced)</small>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         
@@ -792,6 +848,92 @@
                 <button type="button" class="btn btn-success" id="installUpdateBtn">
                     <i class="fas fa-sync-alt"></i> Install and Restart
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- RCon Management Modal -->
+    <div id="rconModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>RCon Server Management</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="rcon-section">
+                    <h4><i class="fas fa-server"></i> Server: <span id="rconServerName">Unknown</span></h4>
+                    <div class="rcon-status" id="rconStatus">
+                        <span class="status-badge">Disconnected</span>
+                    </div>
+                </div>
+
+                <div class="rcon-actions">
+                    <div class="action-group">
+                        <h5><i class="fas fa-redo"></i> Restart Management</h5>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="restartWarningTime">Warning Time (minutes)</label>
+                                <input type="number" id="restartWarningTime" value="5" min="0" max="60" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label for="restartMessage">Restart Message</label>
+                                <input type="text" id="restartMessage" value="Server restart in {time} minutes" class="form-control">
+                            </div>
+                        </div>
+                        <button class="btn btn-warning" id="executeRestartBtn">
+                            <i class="fas fa-redo"></i> Execute Restart
+                        </button>
+                    </div>
+
+                    <div class="action-group">
+                        <h5><i class="fas fa-bullhorn"></i> Broadcast Message</h5>
+                        <div class="form-group">
+                            <label for="broadcastMessage">Message to All Players</label>
+                            <input type="text" id="broadcastMessage" placeholder="Enter message to broadcast" class="form-control">
+                        </div>
+                        <button class="btn btn-info" id="broadcastBtn">
+                            <i class="fas fa-bullhorn"></i> Send Message
+                        </button>
+                    </div>
+
+                    <div class="action-group">
+                        <h5><i class="fas fa-users"></i> Player Management</h5>
+                        <button class="btn btn-primary" id="getPlayersBtn">
+                            <i class="fas fa-list"></i> Get Player List
+                        </button>
+                        <div id="playersList" class="players-list">
+                            <!-- Player list will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="app.hideModals()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Process Notification Box -->
+    <div id="processNotification" class="process-notification">
+        <div class="notification-header">
+            <div class="notification-title">
+                <i class="fas fa-cog fa-spin"></i>
+                <span id="notificationTitle">Processing</span>
+            </div>
+            <button class="notification-close" id="closeNotification">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="notification-body">
+            <div class="notification-status" id="notificationStatus">Initializing...</div>
+            <div class="notification-progress">
+                <div class="progress-bar-small">
+                    <div class="progress-fill-small" id="notificationProgressFill"></div>
+                </div>
+                <div class="progress-text" id="notificationProgressText">0%</div>
+            </div>
+            <div class="notification-details" id="notificationDetails">
+                <!-- Process steps will be added here -->
             </div>
         </div>
     </div>

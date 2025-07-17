@@ -149,6 +149,15 @@ body {
     background-color: #2c5aa0;
 }
 
+.btn-orange {
+    background-color: #ff8c00;
+    color: white;
+}
+
+.btn-orange:hover {
+    background-color: #ff7700;
+}
+
 /* Main Layout */
 .main-content {
     display: flex;
@@ -294,6 +303,41 @@ body {
     color: #a0aec0;
 }
 
+/* Restart Schedule Styling */
+.restart-schedule-item {
+    background-color: #1a365d;
+    padding: 0.5rem;
+    border-radius: 4px;
+    border-left: 3px solid #3182ce;
+    margin-bottom: 0.25rem !important;
+}
+
+.restart-schedule-item.disabled {
+    background-color: #2d3748;
+    border-left-color: #718096;
+}
+
+.restart-schedule-item .label i {
+    margin-right: 0.25rem;
+    color: #63b3ed;
+}
+
+.restart-schedule-details {
+    margin-left: 1rem;
+    font-size: 0.8rem;
+    color: #a0aec0;
+}
+
+.restart-times {
+    color: #63b3ed;
+    font-weight: 600;
+}
+
+.restart-disabled {
+    color: #718096;
+    font-style: italic;
+}
+
 /* Server Resources */
 .server-resources {
     margin-top: 1rem;
@@ -434,6 +478,97 @@ body {
 
 .checkmark {
     margin-left: 0.25rem;
+}
+
+/* Restart Scheduler */
+.restart-scheduler-container {
+    border: 1px solid #4a5568;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 0.5rem;
+    background-color: #2d3748;
+}
+
+.restart-times-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #4a5568;
+    padding-bottom: 0.5rem;
+}
+
+.restart-times-header h5 {
+    color: #63b3ed;
+    margin: 0;
+    font-size: 1rem;
+}
+
+.restart-times-list {
+    margin-bottom: 1rem;
+}
+
+.restart-time-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    background-color: #1a202c;
+    border: 1px solid #4a5568;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.restart-time-item:hover {
+    border-color: #63b3ed;
+    background-color: #2d3748;
+}
+
+.restart-time-input {
+    background-color: #2d3748;
+    border: 1px solid #4a5568;
+    border-radius: 4px;
+    color: #e2e8f0;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.9rem;
+    width: 100px;
+}
+
+.restart-time-input:focus {
+    outline: none;
+    border-color: #3182ce;
+    box-shadow: 0 0 0 2px rgba(49, 130, 206, 0.2);
+}
+
+.restart-time-remove {
+    background-color: #e53e3e;
+    border: none;
+    color: white;
+    border-radius: 4px;
+    padding: 0.375rem 0.75rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: background-color 0.2s ease;
+}
+
+.restart-time-remove:hover {
+    background-color: #c53030;
+}
+
+.restart-scheduler-options {
+    border-top: 1px solid #4a5568;
+    padding-top: 1rem;
+}
+
+.no-restart-times {
+    text-align: center;
+    color: #a0aec0;
+    font-style: italic;
+    padding: 1rem;
+    background-color: #1a202c;
+    border: 1px dashed #4a5568;
+    border-radius: 6px;
 }
 
 /* Enhanced form text styling */
@@ -1660,4 +1795,545 @@ select.form-control {
 
 .update-ready .update-icon {
     color: #68d391;
+}
+
+/* Process Notification Box */
+.process-notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 320px;
+    background: linear-gradient(135deg, #ff8c00, #ff7700);
+    border: 1px solid #ff6600;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(255, 140, 0, 0.3);
+    z-index: 9999;
+    transform: translateX(400px);
+    transition: transform 0.3s ease-in-out;
+    font-size: 14px;
+}
+
+.process-notification.show {
+    transform: translateX(0);
+}
+
+.notification-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px 8px 0 0;
+}
+
+.notification-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.notification-title i {
+    font-size: 16px;
+}
+
+.notification-close {
+    background: none;
+    border: none;
+    color: #ffffff;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.notification-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.notification-body {
+    padding: 16px;
+    color: #ffffff;
+}
+
+.notification-status {
+    font-weight: 500;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.notification-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.progress-bar-small {
+    flex: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress-fill-small {
+    height: 100%;
+    background: #ffffff;
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 2px;
+}
+
+.progress-text {
+    font-size: 12px;
+    font-weight: 500;
+    min-width: 35px;
+    text-align: right;
+}
+
+.notification-details {
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.process-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.process-step.current {
+    opacity: 1;
+    font-weight: 500;
+}
+
+.process-step.completed {
+    opacity: 0.6;
+}
+
+.process-step i {
+    width: 16px;
+    text-align: center;
+    font-size: 11px;
+}
+
+.process-step.current i {
+    animation: spin 1s linear infinite;
+}
+
+.process-step.completed i {
+    color: #ffffff;
+}
+
+.process-step.waiting i {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* Different notification types */
+.process-notification.info {
+    background: linear-gradient(135deg, #3182ce, #2c5aa0);
+    border-color: #2b6cb0;
+    box-shadow: 0 4px 20px rgba(49, 130, 206, 0.3);
+}
+
+.process-notification.success {
+    background: linear-gradient(135deg, #38a169, #2f855a);
+    border-color: #2f855a;
+    box-shadow: 0 4px 20px rgba(56, 161, 105, 0.3);
+}
+
+.process-notification.error {
+    background: linear-gradient(135deg, #e53e3e, #c53030);
+    border-color: #c53030;
+    box-shadow: 0 4px 20px rgba(229, 62, 62, 0.3);
+}
+
+.process-notification.warning {
+    background: linear-gradient(135deg, #ff8c00, #ff7700);
+    border-color: #ff6600;
+    box-shadow: 0 4px 20px rgba(255, 140, 0, 0.3);
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Hide notification when closed */
+.process-notification.hidden {
+    display: none;
+}
+
+/* Notification Active Overlay - Subtle visual feedback when notifications are blocking UI */
+.notification-active-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.05);
+    z-index: 9998;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+}
+
+.notification-active-overlay.show {
+    opacity: 1;
+}
+
+/* Disable button interaction when notification is active */
+.notification-active .btn {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transition: opacity 0.3s ease-in-out;
+}
+
+/* Confirmation Notification Styles */
+.confirmation-notification {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    z-index: 10000;
+    min-width: 400px;
+    max-width: 600px;
+    background: #2a2a2a;
+    border-radius: 12px;
+    border: 2px solid #ff8c00;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    animation: confirmationSlideIn 0.3s ease-out;
+    /* Override any inherited positioning */
+    right: auto !important;
+    bottom: auto !important;
+    margin: 0 !important;
+}
+
+/* Backdrop for confirmation dialogs */
+.confirmation-notification::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: -1;
+    backdrop-filter: blur(2px);
+}
+
+/* Error variant for dangerous actions */
+.confirmation-notification.error {
+    border-color: #e53e3e;
+    box-shadow: 0 8px 32px rgba(229, 62, 62, 0.4);
+}
+
+.confirmation-notification.error .notification-header h3 {
+    color: #fed7d7;
+}
+
+/* Warning variant */
+.confirmation-notification.warning {
+    border-color: #ff8c00;
+}
+
+.confirmation-notification.warning .notification-header h3 {
+    color: #ff8c00;
+}
+
+/* Info variant */
+.confirmation-notification.info {
+    border-color: #3182ce;
+}
+
+.confirmation-notification.info .notification-header h3 {
+    color: #90cdf4;
+}
+
+.confirmation-notification .notification-header {
+    padding: 1.5rem 1.5rem 0;
+}
+
+.confirmation-notification .notification-header h3 {
+    color: #ff8c00;
+    font-size: 1.25rem;
+    margin: 0;
+}
+
+.confirmation-notification .notification-body {
+    padding: 1.5rem;
+}
+
+.confirmation-message {
+    color: #ffffff;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+    white-space: pre-line;
+    word-wrap: break-word;
+    font-size: 14px;
+}
+
+.confirmation-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+}
+
+.confirmation-actions .btn {
+    min-width: 100px;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.confirmation-actions .btn-primary {
+    background: #ff8c00;
+    color: #ffffff;
+}
+
+.confirmation-actions .btn-primary:hover {
+    background: #e67e00;
+    transform: translateY(-1px);
+}
+
+.confirmation-actions .btn-danger {
+    background: #e53e3e;
+    color: #ffffff;
+}
+
+.confirmation-actions .btn-danger:hover {
+    background: #c53030;
+    transform: translateY(-1px);
+}
+
+.confirmation-actions .btn-secondary {
+    background: #4a5568;
+    color: #ffffff;
+}
+
+.confirmation-actions .btn-secondary:hover {
+    background: #2d3748;
+    transform: translateY(-1px);
+}
+
+.confirmation-actions .btn-secondary:hover {
+    background: #2d3748;
+    transform: translateY(-1px);
+}
+
+.dangerous-input-group {
+    margin: 1rem 0;
+    padding: 1rem;
+    background: rgba(229, 62, 62, 0.1);
+    border: 1px solid #e53e3e;
+    border-radius: 6px;
+}
+
+.dangerous-input-group label {
+    display: block;
+    color: #fed7d7;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.dangerous-confirm-input {
+    width: 100%;
+    padding: 0.75rem;
+    background: #2a2a2a;
+    border: 2px solid #e53e3e;
+    border-radius: 4px;
+    color: #ffffff;
+    font-size: 1rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.dangerous-confirm-input:focus {
+    outline: none;
+    border-color: #fc8181;
+    box-shadow: 0 0 0 3px rgba(229, 62, 62, 0.3);
+}
+
+.dangerous-confirm-input::placeholder {
+    color: #a0aec0;
+    text-transform: none;
+    font-weight: normal;
+}
+
+@keyframes confirmationSlideIn {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -60%);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%);
+    }
+}
+
+/* RCon Management Styles */
+.rcon-section {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: #2a2a2a;
+    border-radius: 8px;
+    border-left: 4px solid #ff8c00;
+}
+
+.rcon-section h4 {
+    margin-bottom: 0.5rem;
+    color: #ff8c00;
+}
+
+.rcon-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.rcon-status .status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.rcon-status .status-badge.success {
+    background: #48bb78;
+    color: white;
+}
+
+.rcon-status .status-badge.warning {
+    background: #ed8936;
+    color: white;
+}
+
+.rcon-status .status-badge.error {
+    background: #f56565;
+    color: white;
+}
+
+.rcon-status .status-badge.info {
+    background: #4299e1;
+    color: white;
+}
+
+.rcon-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.action-group {
+    padding: 1rem;
+    background: #2a2a2a;
+    border-radius: 8px;
+    border: 1px solid #404040;
+}
+
+.action-group h5 {
+    margin-bottom: 1rem;
+    color: #ff8c00;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.action-group .form-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.action-group .form-group {
+    flex: 1;
+}
+
+.players-list {
+    margin-top: 1rem;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    background: #1a1a1a;
+}
+
+.players-header {
+    padding: 0.75rem;
+    background: #2d3748;
+    color: #ff8c00;
+    font-weight: 600;
+    border-bottom: 1px solid #404040;
+}
+
+.players-empty {
+    padding: 1rem;
+    text-align: center;
+    color: #888;
+    font-style: italic;
+}
+
+.player-item {
+    padding: 0.75rem;
+    border-bottom: 1px solid #404040;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.player-item:last-child {
+    border-bottom: none;
+}
+
+.player-info {
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+}
+
+.player-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.btn-orange {
+    background: linear-gradient(135deg, #ff8c00, #ff7700);
+    border: none;
+    color: white;
+    transition: all 0.3s ease;
+}
+
+.btn-orange:hover {
+    background: linear-gradient(135deg, #ff7700, #ff6600);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255, 140, 0, 0.3);
+}
+
+/* Wipe button special styling */
+.btn.btn-danger[onclick*="wipeServerStorage"] {
+    background: linear-gradient(135deg, #dc143c, #b91c1c);
+    border: 2px solid #dc143c;
+    animation: pulse-danger 2s infinite;
+}
+
+.btn.btn-danger[onclick*="wipeServerStorage"]:hover {
+    background: linear-gradient(135deg, #b91c1c, #991b1b);
+    transform: scale(1.05);
+    box-shadow: 0 4px 20px rgba(220, 20, 60, 0.4);
+}
+
+@keyframes pulse-danger {
+    0%, 100% {
+        box-shadow: 0 0 5px rgba(220, 20, 60, 0.5);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(220, 20, 60, 0.8);
+    }
 }

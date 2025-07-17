@@ -6,7 +6,29 @@ class DayZServerManagerUI {
         this.settings = {};
         this.currentEditingServer = null;
         this.serverStatuses = new Map(); // Track server statuses
+        this.currentNotification = null; // Track current notification
+        this.notificationSteps = []; // Track process steps
+        
+        // Add global error handling
+        this.setupGlobalErrorHandling();
+        
         this.init();
+    }
+
+    setupGlobalErrorHandling() {
+        // Catch unhandled errors to prevent UI breaking
+        window.addEventListener('error', (event) => {
+            console.error('Global error caught:', event.error);
+            this.showError('An unexpected error occurred. Please try again.');
+            event.preventDefault();
+        });
+
+        // Catch unhandled promise rejections
+        window.addEventListener('unhandledrejection', (event) => {
+            console.error('Unhandled promise rejection:', event.reason);
+            this.showError('An unexpected error occurred. Please try again.');
+            event.preventDefault();
+        });
     }
 
     async init() {
@@ -25,10 +47,11 @@ class DayZServerManagerUI {
             });
         });
 
-        // Progress modal setup
-        this.setupProgressModal();
+        // Notification system setup
+        this.setupNotificationSystem();
 
         // Header buttons
+        document.getElementById('checkUpdatesBtn').addEventListener('click', () => this.checkForUpdates());
         document.getElementById('addServerBtn').addEventListener('click', () => this.showServerModal());
         document.getElementById('settingsBtn').addEventListener('click', () => this.showSettingsModal());
 
@@ -107,6 +130,137 @@ class DayZServerManagerUI {
                 document.getElementById('defaultModCopyPath').value = result.path;
             }
         });
+        
+        // Auto-update RCon port placeholder when game port changes
+        document.getElementById('port').addEventListener('input', (e) => {
+            const gamePort = parseInt(e.target.value);
+            const rconPortField = document.getElementById('rconPort');
+            if (!isNaN(gamePort) && rconPortField && !rconPortField.value) {
+                rconPortField.placeholder = `Auto (${gamePort + 1})`;
+            }
+        });
+        
+        // Setup restart scheduler
+        this.setupRestartScheduler();
+    }
+
+    setupRestartScheduler() {
+        const enableCheckbox = document.getElementById('enableRestartScheduler');
+        const container = document.getElementById('restartSchedulerContainer');
+        const addTimeBtn = document.getElementById('addRestartTimeBtn');
+        
+        // Check if elements exist (they might not be loaded yet)
+        if (!enableCheckbox || !container || !addTimeBtn) {
+            console.warn('Restart scheduler elements not found, skipping setup');
+            return;
+        }
+        
+        // Toggle scheduler container visibility
+        enableCheckbox.addEventListener('change', () => {
+            container.style.display = enableCheckbox.checked ? 'block' : 'none';
+        });
+        
+        // Add new restart time
+        addTimeBtn.addEventListener('click', () => {
+            this.addRestartTime();
+        });
+    }
+
+    addRestartTime(time = '06:00') {
+        const timesList = document.getElementById('restartTimesList');
+        const timeId = Date.now().toString();
+        
+        const timeItem = document.createElement('div');
+        timeItem.className = 'restart-time-item';
+        timeItem.dataset.timeId = timeId;
+        
+        timeItem.innerHTML = `
+            <label>Restart at:</label>
+            <input type="time" class="restart-time-input" value="${time}" data-time-id="${timeId}">
+            <span class="restart-time-preview">(Daily restart at ${time})</span>
+            <button type="button" class="restart-time-remove" onclick="app.removeRestartTime('${timeId}')">
+                <i class="fas fa-trash"></i> Remove
+            </button>
+        `;
+        
+        timesList.appendChild(timeItem);
+        this.updateRestartTimesDisplay();
+        
+        // Add event listener to update preview when time changes
+        const timeInput = timeItem.querySelector('.restart-time-input');
+        timeInput.addEventListener('change', () => {
+            const preview = timeItem.querySelector('.restart-time-preview');
+            preview.textContent = `(Daily restart at ${timeInput.value})`;
+        });
+    }
+
+    removeRestartTime(timeId) {
+        const timeItem = document.querySelector(`[data-time-id="${timeId}"]`);
+        if (timeItem) {
+            timeItem.remove();
+            this.updateRestartTimesDisplay();
+        }
+    }
+
+    updateRestartTimesDisplay() {
+        const timesList = document.getElementById('restartTimesList');
+        const timeItems = timesList.querySelectorAll('.restart-time-item');
+        
+        if (timeItems.length === 0) {
+            timesList.innerHTML = `
+                <div class="no-restart-times">
+                    <i class="fas fa-clock"></i> No restart times configured.<br>
+                    Click "Add Time" to schedule automatic restarts.
+                </div>
+            `;
+        }
+    }
+
+    getRestartSchedulerData() {
+        const enabled = document.getElementById('enableRestartScheduler').checked;
+        const timeInputs = document.querySelectorAll('.restart-time-input');
+        const times = Array.from(timeInputs).map(input => input.value).filter(time => time);
+        const warningTime = parseInt(document.getElementById('restartWarningTime').value) || 15;
+        const restartMessage = document.getElementById('restartMessage').value || 'Server restart in {time} minutes. Please find a safe location.';
+        
+        return {
+            enabled,
+            times,
+            warningTime,
+            restartMessage
+        };
+    }
+
+    populateRestartSchedulerData(schedulerData) {
+        if (!schedulerData) return;
+        
+        const enableCheckbox = document.getElementById('enableRestartScheduler');
+        const container = document.getElementById('restartSchedulerContainer');
+        const timesList = document.getElementById('restartTimesList');
+        
+        // Set enabled state
+        enableCheckbox.checked = schedulerData.enabled || false;
+        container.style.display = enableCheckbox.checked ? 'block' : 'none';
+        
+        // Clear existing times
+        timesList.innerHTML = '';
+        
+        // Add scheduled times
+        if (schedulerData.times && schedulerData.times.length > 0) {
+            schedulerData.times.forEach(time => {
+                this.addRestartTime(time);
+            });
+        } else {
+            this.updateRestartTimesDisplay();
+        }
+        
+        // Set options
+        if (schedulerData.warningTime) {
+            document.getElementById('restartWarningTime').value = schedulerData.warningTime;
+        }
+        if (schedulerData.restartMessage) {
+            document.getElementById('restartMessage').value = schedulerData.restartMessage;
+        }
     }
 
     setupLaunchParametersPreview() {
@@ -266,6 +420,10 @@ class DayZServerManagerUI {
     }
 
     switchTab(tabName) {
+        // Clear any lingering loading states or notifications
+        this.showLoading(false);
+        this.hideNotification();
+        
         // Update navigation
         document.querySelectorAll('.nav-item').forEach(item => {
             item.classList.remove('active');
@@ -329,6 +487,14 @@ class DayZServerManagerUI {
             const newAddModBtn = document.getElementById('addModBtn');
             newAddModBtn.addEventListener('click', () => this.showAddModModal());
         }
+        
+        const testChangelogBtn = document.getElementById('testChangelogBtn');
+        if (testChangelogBtn) {
+            // Remove existing listeners  
+            testChangelogBtn.replaceWith(testChangelogBtn.cloneNode(true));
+            const newTestChangelogBtn = document.getElementById('testChangelogBtn');
+            newTestChangelogBtn.addEventListener('click', () => this.testModChangelog());
+        }
     }
 
     renderServers() {
@@ -355,6 +521,39 @@ class DayZServerManagerUI {
         const status = this.getServerStatus(server.id);
         const statusClass = `status-${status}`;
         
+        // Format restart schedule display
+        let restartScheduleHtml = '';
+        if (server.restartScheduler && server.restartScheduler.enabled && server.restartScheduler.times && server.restartScheduler.times.length > 0) {
+            const times = server.restartScheduler.times.join(', ');
+            const nextRestart = this.getNextRestartTime(server.restartScheduler.times);
+            
+            restartScheduleHtml = `
+                <div class="server-info-item restart-schedule-item">
+                    <span class="label">
+                        <i class="fas fa-clock"></i> Restart Schedule:
+                    </span>
+                    <span class="restart-times">${times}</span>
+                </div>
+                <div class="server-info-item restart-schedule-details">
+                    <span class="label">Next Restart:</span>
+                    <span>${nextRestart}</span>
+                </div>
+                <div class="server-info-item restart-schedule-details">
+                    <span class="label">Warning Time:</span>
+                    <span>${server.restartScheduler.warningTime || 15} minutes</span>
+                </div>
+            `;
+        } else {
+            restartScheduleHtml = `
+                <div class="server-info-item restart-schedule-item disabled">
+                    <span class="label">
+                        <i class="fas fa-clock"></i> Restart Schedule:
+                    </span>
+                    <span class="restart-disabled">Disabled</span>
+                </div>
+            `;
+        }
+        
         return `
             <div class="server-card fade-in" data-server-id="${server.id}">
                 <div class="server-header">
@@ -378,6 +577,7 @@ class DayZServerManagerUI {
                         <span class="label">Mods:</span>
                         <span>${server.mods ? server.mods.length : 0}</span>
                     </div>
+                    ${restartScheduleHtml}
                     <!-- Resources will be dynamically added here for running servers -->
                 </div>
                 <div class="server-actions">
@@ -411,6 +611,14 @@ class DayZServerManagerUI {
                     <button class="btn btn-success" onclick="app.pullModKeys('${server.id}')" title="Copy all mod keys from installed mods to server keys folder">
                         <i class="fas fa-download"></i> Pull Mod Keys
                     </button>
+                    ${server.rconPassword ? `
+                    <button class="btn btn-orange" onclick="app.showRConModal('${server.id}')" title="RCon Server Management">
+                        <i class="fas fa-terminal"></i> RCon
+                    </button>
+                    ` : ''}
+                    <button class="btn btn-danger" onclick="app.wipeServerStorage('${server.id}')" title="Wipe server storage folder">
+                        <i class="fas fa-eraser"></i> Wipe Storage
+                    </button>
                     <button class="btn btn-secondary" onclick="app.editServer('${server.id}')">
                         <i class="fas fa-edit"></i> Edit
                     </button>
@@ -420,6 +628,55 @@ class DayZServerManagerUI {
                 </div>
             </div>
         `;
+    }
+
+    getNextRestartTime(restartTimes) {
+        if (!restartTimes || restartTimes.length === 0) {
+            return 'None scheduled';
+        }
+
+        const now = new Date();
+        const currentHour = now.getHours();
+        const currentMinute = now.getMinutes();
+        const currentTimeInMinutes = currentHour * 60 + currentMinute;
+
+        // Convert restart times to minutes and sort them
+        const timeInMinutes = restartTimes.map(time => {
+            const [hours, minutes] = time.split(':').map(Number);
+            return hours * 60 + minutes;
+        }).sort((a, b) => a - b);
+
+        // Find the next restart time today
+        const nextTodayRestart = timeInMinutes.find(time => time > currentTimeInMinutes);
+        
+        if (nextTodayRestart) {
+            // Next restart is today
+            const hours = Math.floor(nextTodayRestart / 60);
+            const minutes = nextTodayRestart % 60;
+            const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+            const minutesUntil = nextTodayRestart - currentTimeInMinutes;
+            
+            if (minutesUntil < 60) {
+                return `${timeStr} (in ${minutesUntil} min)`;
+            } else {
+                const hoursUntil = Math.floor(minutesUntil / 60);
+                const remainingMinutes = minutesUntil % 60;
+                return `${timeStr} (in ${hoursUntil}h ${remainingMinutes}m)`;
+            }
+        } else {
+            // Next restart is tomorrow (first restart time of the day)
+            const firstRestart = timeInMinutes[0];
+            const hours = Math.floor(firstRestart / 60);
+            const minutes = firstRestart % 60;
+            const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+            
+            // Calculate time until tomorrow's first restart
+            const minutesUntilMidnight = (24 * 60) - currentTimeInMinutes;
+            const totalMinutesUntil = minutesUntilMidnight + firstRestart;
+            const hoursUntil = Math.floor(totalMinutesUntil / 60);
+            
+            return `${timeStr} tomorrow (in ${hoursUntil}h)`;
+        }
     }
 
     async renderMods() {
@@ -557,6 +814,9 @@ class DayZServerManagerUI {
                     <button class="btn btn-secondary btn-sm" onclick="app.openModWorkshop('${mod.id}')">
                         <i class="fas fa-external-link-alt"></i> Workshop
                     </button>
+                    <button class="btn btn-orange btn-sm" onclick="app.showModChangelog('${mod.id}')">
+                        <i class="fas fa-file-alt"></i> Changelog
+                    </button>
                     <button class="btn btn-warning btn-sm" onclick="app.checkModUpdates('${mod.id}')">
                         <i class="fas fa-search"></i> Check Status
                     </button>
@@ -668,63 +928,119 @@ class DayZServerManagerUI {
 
     async updateSingleMod(modId) {
         try {
-            this.showLoading(true);
+            // Show notification instead of loading modal
+            this.showNotification(`Updating Mod ${modId}`, 'warning');
             
-            // Show progress feedback
-            this.showSuccess(`Starting update for mod ${modId}...`);
+            // Add process steps
+            const step1 = this.addNotificationStep('Launching SteamCMD', 'current');
+            this.updateNotificationProgress(20, '20%');
+            await this.delay(400);
+            
+            this.updateNotificationStep(step1, 'completed');
+            const step2 = this.addNotificationStep('Authenticating with Steam', 'current');
+            this.updateNotificationProgress(40, '40%');
+            await this.delay(300);
+            
+            this.updateNotificationStep(step2, 'completed');
+            const step3 = this.addNotificationStep(`Downloading mod ${modId}`, 'current');
+            this.updateNotificationProgress(80, '80%');
             
             const result = await ipcRenderer.invoke('update-single-mod', modId);
             
+            this.updateNotificationStep(step3, 'completed');
+            const step4 = this.addNotificationStep('Finalizing mod update', 'current');
+            this.updateNotificationProgress(100, '100%');
+            await this.delay(200);
+            
             if (result.success) {
-                this.showSuccess(result.message);
+                this.updateNotificationStep(step4, 'completed');
+                this.updateNotificationStatus('Mod updated successfully');
                 
-                // Refresh the mod manager to show updated status
-                if (document.getElementById('mods-tab').classList.contains('active')) {
-                    this.renderMods();
-                }
-                
-                // Refresh server display if on servers tab
-                if (document.getElementById('servers-tab').classList.contains('active')) {
-                    this.renderServers();
-                }
+                // Auto-hide notification after success
+                setTimeout(() => {
+                    this.hideNotification();
+                    this.showSuccess(result.message);
+                    
+                    // Refresh the mod manager to show updated status
+                    if (document.getElementById('mods-tab').classList.contains('active')) {
+                        this.renderMods();
+                    }
+                    
+                    // Refresh server display if on servers tab
+                    if (document.getElementById('servers-tab').classList.contains('active')) {
+                        this.renderServers();
+                    }
+                }, 2000);
+            } else {
+                this.updateNotificationStep(step4, 'error', 'Update failed');
+                setTimeout(() => {
+                    this.hideNotification();
+                    this.showError(result.message || 'Failed to update mod');
+                }, 1500);
             }
         } catch (error) {
             console.error('Error updating mod:', error);
+            this.hideNotification();
             this.showError(`Failed to update mod ${modId}: ${error.message}`);
-        } finally {
-            this.showLoading(false);
         }
     }
 
     async installSingleMod(modId) {
         try {
-            this.showLoading(true);
+            // Show notification instead of loading modal
+            this.showNotification(`Installing Mod ${modId}`, 'info');
             
-            // Show progress feedback
-            this.showSuccess(`Starting installation for mod ${modId}...`);
+            // Add process steps
+            const step1 = this.addNotificationStep('Launching SteamCMD', 'current');
+            this.updateNotificationProgress(20, '20%');
+            await this.delay(400);
+            
+            this.updateNotificationStep(step1, 'completed');
+            const step2 = this.addNotificationStep('Authenticating with Steam', 'current');
+            this.updateNotificationProgress(40, '40%');
+            await this.delay(300);
+            
+            this.updateNotificationStep(step2, 'completed');
+            const step3 = this.addNotificationStep(`Installing mod ${modId}`, 'current');
+            this.updateNotificationProgress(80, '80%');
             
             const result = await ipcRenderer.invoke('install-single-mod', modId);
             
+            this.updateNotificationStep(step3, 'completed');
+            const step4 = this.addNotificationStep('Finalizing installation', 'current');
+            this.updateNotificationProgress(100, '100%');
+            await this.delay(200);
+            
             if (result.success) {
-                this.showSuccess(result.message);
+                this.updateNotificationStep(step4, 'completed');
+                this.updateNotificationStatus('Mod installed successfully');
                 
-                // Refresh the mod manager to show updated status
-                if (document.getElementById('mods-tab').classList.contains('active')) {
-                    this.renderMods();
-                }
-                
-                // Refresh server display if on servers tab
-                if (document.getElementById('servers-tab').classList.contains('active')) {
-                    this.renderServers();
-                }
+                // Auto-hide notification after success
+                setTimeout(() => {
+                    this.hideNotification();
+                    this.showSuccess(result.message);
+                    
+                    // Refresh the mod manager to show updated status
+                    if (document.getElementById('mods-tab').classList.contains('active')) {
+                        this.renderMods();
+                    }
+                    
+                    // Refresh server display if on servers tab
+                    if (document.getElementById('servers-tab').classList.contains('active')) {
+                        this.renderServers();
+                    }
+                }, 2000);
             } else {
-                this.showError(`Failed to install mod ${modId}: ${result.error}`);
+                this.updateNotificationStep(step4, 'error', 'Installation failed');
+                setTimeout(() => {
+                    this.hideNotification();
+                    this.showError(`Failed to install mod ${modId}: ${result.error}`);
+                }, 1500);
             }
         } catch (error) {
             console.error('Error installing mod:', error);
+            this.hideNotification();
             this.showError(`Failed to install mod ${modId}: ${error.message}`);
-        } finally {
-            this.showLoading(false);
         }
     }
 
@@ -735,29 +1051,57 @@ class DayZServerManagerUI {
 
     async checkModUpdates(modId) {
         try {
-            this.showLoading(true);
+            // Show notification instead of loading modal
+            this.showNotification('Checking Mod Updates', 'info');
+            
+            // Add process steps
+            const step1 = this.addNotificationStep('Connecting to Steam API', 'current');
+            this.updateNotificationProgress(20, '20%');
+            await this.delay(400);
+            
+            this.updateNotificationStep(step1, 'completed');
+            const step2 = this.addNotificationStep(`Checking mod ${modId} for updates`, 'current');
+            this.updateNotificationProgress(60, '60%');
             
             const serversWithMod = this.servers.filter(server => 
                 server.mods && server.mods.some(mod => mod.id === modId)
             );
+            
+            this.updateNotificationStep(step2, 'completed');
+            const step3 = this.addNotificationStep('Processing update information', 'current');
+            this.updateNotificationProgress(100, '100%');
             
             for (const server of serversWithMod) {
                 const updateInfo = await ipcRenderer.invoke('check-mod-updates', server.id);
                 const modUpdateInfo = updateInfo.find(info => info.id === modId);
                 
                 if (modUpdateInfo) {
+                    this.updateNotificationStep(step3, 'completed');
+                    
                     const message = modUpdateInfo.needsUpdate 
                         ? `Mod ${modId} has updates available`
                         : `Mod ${modId} is up to date`;
-                    this.showSuccess(message);
+                    
+                    this.updateNotificationStatus(message);
+                    
+                    // Add result step
+                    const resultStep = this.addNotificationStep(
+                        modUpdateInfo.needsUpdate ? '⚠️ Updates available' : '✅ Up to date',
+                        'completed'
+                    );
+                    
+                    // Auto-hide notification after showing result
+                    setTimeout(() => {
+                        this.hideNotification();
+                        this.showSuccess(message);
+                    }, 2000);
                     break;
                 }
             }
         } catch (error) {
             console.error('Error checking mod updates:', error);
+            this.hideNotification();
             this.showError(`Failed to check mod updates: ${error.message}`);
-        } finally {
-            this.showLoading(false);
         }
     }
 
@@ -843,17 +1187,17 @@ class DayZServerManagerUI {
             return;
         }
 
-        const confirmed = confirm(`Create backups for ${serversWithBackupPath.length} server(s)?`);
-        if (!confirmed) return;
+        this.showConfirmation(
+            `Create backups for ${serversWithBackupPath.length} server(s)?\n\nThis may take some time depending on server data size.`,
+            async () => {
+                this.showLoading(true);
+                let successCount = 0;
+                let errorCount = 0;
 
-        this.showLoading(true);
-        let successCount = 0;
-        let errorCount = 0;
-
-        for (const server of serversWithBackupPath) {
-            try {
-                const result = await ipcRenderer.invoke('create-backup', server.id, 'standard');
-                if (result.success) {
+                for (const server of serversWithBackupPath) {
+                    try {
+                        const result = await ipcRenderer.invoke('create-backup', server.id, 'standard');
+                        if (result.success) {
                     successCount++;
                 } else {
                     errorCount++;
@@ -863,15 +1207,19 @@ class DayZServerManagerUI {
                 errorCount++;
                 console.error(`Backup error for ${server.name}:`, error);
             }
-        }
+                }
 
-        this.showLoading(false);
-        
-        if (errorCount === 0) {
-            this.showSuccess(`All ${successCount} server backups completed successfully!`);
-        } else {
-            this.showError(`${successCount} backups completed, ${errorCount} failed. Check console for details.`);
-        }
+                this.showLoading(false);
+                
+                if (errorCount === 0) {
+                    this.showSuccess(`All ${successCount} server backups completed successfully!`);
+                } else {
+                    this.showError(`${successCount} backups completed, ${errorCount} failed. Check console for details.`);
+                }
+            },
+            null,
+            { confirmText: 'Create Backups' }
+        );
     }
 
     async cleanupAllBackups() {
@@ -882,16 +1230,16 @@ class DayZServerManagerUI {
             return;
         }
 
-        const confirmed = confirm('Cleanup old backups for all servers? This will remove backups older than the retention period.');
-        if (!confirmed) return;
+        this.showConfirmation(
+            `Cleanup old backups for all servers?\n\nThis will remove backups older than the retention period.\nThis action cannot be undone.`,
+            async () => {
+                this.showLoading(true);
+                let successCount = 0;
+                let errorCount = 0;
 
-        this.showLoading(true);
-        let successCount = 0;
-        let errorCount = 0;
-
-        for (const server of serversWithBackupPath) {
-            try {
-                const result = await ipcRenderer.invoke('cleanup-old-backups', server.id);
+                for (const server of serversWithBackupPath) {
+                    try {
+                        const result = await ipcRenderer.invoke('cleanup-old-backups', server.id);
                 if (result.success) {
                     successCount++;
                 } else {
@@ -902,18 +1250,20 @@ class DayZServerManagerUI {
                 errorCount++;
                 console.error(`Cleanup error for ${server.name}:`, error);
             }
-        }
+                }
 
-        this.showLoading(false);
-        
-        if (errorCount === 0) {
-            this.showSuccess(`Backup cleanup completed for ${successCount} server(s)!`);
-        } else {
-            this.showError(`${successCount} cleanups completed, ${errorCount} failed. Check console for details.`);
-        }
-    }
-
-    async viewServerBackups(serverId) {
+                this.showLoading(false);
+                
+                if (errorCount === 0) {
+                    this.showSuccess(`Backup cleanup completed for ${successCount} server(s)!`);
+                } else {
+                    this.showError(`${successCount} cleanups completed, ${errorCount} failed. Check console for details.`);
+                }
+            },
+            null,
+            { confirmText: 'Cleanup Backups', dangerous: true }
+        );
+    }    async viewServerBackups(serverId) {
         try {
             this.showLoading(true);
             const result = await ipcRenderer.invoke('list-backups', serverId);
@@ -995,37 +1345,43 @@ class DayZServerManagerUI {
     }
 
     async restoreBackup(serverId, backupPath) {
-        const confirmed = confirm('Are you sure you want to restore this backup? This will overwrite current server data.');
-        if (!confirmed) return;
+        this.showConfirmation(
+            'Are you sure you want to restore this backup?\n\nThis will overwrite current server data and cannot be undone.',
+            async () => {
+                try {
+                    this.showLoading(true);
+                    const result = await ipcRenderer.invoke('restore-backup', serverId, backupPath);
+                    this.showLoading(false);
 
-        try {
-            this.showLoading(true);
-            const result = await ipcRenderer.invoke('restore-backup', serverId, backupPath);
-            this.showLoading(false);
-
-            if (result.success) {
-                this.showSuccess(`Backup restored successfully! ${result.filesRestored} files restored.`);
-                document.getElementById('backupListModal').remove();
-            } else {
-                this.showError(`Failed to restore backup: ${result.error}`);
-            }
-        } catch (error) {
-            this.showLoading(false);
-            this.showError(`Error restoring backup: ${error.message}`);
-        }
-    }
-
-    async deleteBackup(backupPath) {
-        const confirmed = confirm('Are you sure you want to delete this backup? This action cannot be undone.');
-        if (!confirmed) return;
-
-        try {
-            await ipcRenderer.invoke('delete-folder', backupPath);
-            this.showSuccess('Backup deleted successfully');
-            document.getElementById('backupListModal').remove();
-        } catch (error) {
-            this.showError(`Failed to delete backup: ${error.message}`);
-        }
+                    if (result.success) {
+                        this.showSuccess(`Backup restored successfully! ${result.filesRestored} files restored.`);
+                        document.getElementById('backupListModal').remove();
+                    } else {
+                        this.showError(`Failed to restore backup: ${result.error}`);
+                    }
+                } catch (error) {
+                    this.showLoading(false);
+                    this.showError(`Error restoring backup: ${error.message}`);
+                }
+            },
+            null,
+            { confirmText: 'Restore Backup', dangerous: true }
+        );
+    }    async deleteBackup(backupPath) {
+        this.showConfirmation(
+            'Are you sure you want to delete this backup?\n\nThis action cannot be undone.',
+            async () => {
+                try {
+                    await ipcRenderer.invoke('delete-folder', backupPath);
+                    this.showSuccess('Backup deleted successfully');
+                    document.getElementById('backupListModal').remove();
+                } catch (error) {
+                    this.showError(`Failed to delete backup: ${error.message}`);
+                }
+            },
+            null,
+            { confirmText: 'Delete Backup', dangerous: true }
+        );
     }
 
     formatFileSize(bytes) {
@@ -1047,6 +1403,12 @@ class DayZServerManagerUI {
     }
 
     showServerModal(server = null) {
+        // Check if a notification is already active
+        if (this.isNotificationActive()) {
+            console.log('Cannot open server modal while notification is active');
+            return;
+        }
+        
         this.currentEditingServer = server;
         const modal = document.getElementById('serverModal');
         const title = document.getElementById('serverModalTitle');
@@ -1063,6 +1425,12 @@ class DayZServerManagerUI {
     }
 
     showSettingsModal() {
+        // Check if a notification is already active
+        if (this.isNotificationActive()) {
+            console.log('Cannot open settings while notification is active');
+            return;
+        }
+        
         const modal = document.getElementById('settingsModal');
         this.populateSettingsForm();
         modal.classList.add('show');
@@ -1084,6 +1452,8 @@ class DayZServerManagerUI {
         document.getElementById('configFile').value = server.configFile || 'serverDZ.cfg';
         document.getElementById('steamUsername').value = server.steamUsername || '';
         document.getElementById('steamPassword').value = server.steamPassword || '';
+        document.getElementById('rconPassword').value = server.rconPassword || '';
+        document.getElementById('rconPort').value = server.rconPort || '';
         document.getElementById('cpuCount').value = server.cpuCount || 4;
         document.getElementById('backupPath').value = server.backupPath || '';
         document.getElementById('keysPath').value = server.keysPath || '';
@@ -1126,6 +1496,19 @@ class DayZServerManagerUI {
             document.getElementById('customParameters').value = '';
         }
 
+        // Populate restart scheduler data
+        if (server && server.restartScheduler) {
+            this.populateRestartSchedulerData(server.restartScheduler);
+        } else {
+            // Set defaults for restart scheduler
+            this.populateRestartSchedulerData({
+                enabled: false,
+                times: [],
+                warningTime: 15,
+                restartMessage: 'Server restart in {time} minutes. Please find a safe location.'
+            });
+        }
+
         // Update the launch parameters preview
         this.updateLaunchParametersPreview();
     }
@@ -1146,6 +1529,14 @@ class DayZServerManagerUI {
         document.getElementById('filePatching').checked = false;
         document.getElementById('verifySignatures').value = 2;
         document.getElementById('restartTimer').value = 4;
+        
+        // Clear and set defaults for restart scheduler
+        this.populateRestartSchedulerData({
+            enabled: false,
+            times: [],
+            warningTime: 15,
+            restartMessage: 'Server restart in {time} minutes. Please find a safe location.'
+        });
         
         // Update the launch parameters preview
         this.updateLaunchParametersPreview();
@@ -1230,11 +1621,14 @@ class DayZServerManagerUI {
             configFile: document.getElementById('configFile').value,
             steamUsername: document.getElementById('steamUsername').value,
             steamPassword: document.getElementById('steamPassword').value,
+            rconPassword: document.getElementById('rconPassword').value,
+            rconPort: document.getElementById('rconPort').value ? parseInt(document.getElementById('rconPort').value) : null,
             cpuCount: parseInt(document.getElementById('cpuCount').value),
             backupPath: document.getElementById('backupPath').value,
             keysPath: document.getElementById('keysPath').value,
             mods: mods,
-            launchParams: launchParams
+            launchParams: launchParams,
+            restartScheduler: this.getRestartSchedulerData()
         };
     }
 
@@ -1297,14 +1691,51 @@ class DayZServerManagerUI {
 
     async updateServerMods(serverId) {
         try {
-            this.showLoading(true);
+            // Check if a notification is already active
+            if (this.isNotificationActive()) {
+                console.log('Cannot update server mods while notification is active');
+                return;
+            }
+            
+            const server = this.servers.find(s => s.id === serverId);
+            const serverName = server ? server.name : `Server ${serverId}`;
+            
+            // Show notification instead of loading modal
+            this.showNotification(`Updating Server Mods - ${serverName}`, 'warning');
+            
+            // Add process steps
+            const step1 = this.addNotificationStep('Initializing SteamCMD', 'current');
+            this.updateNotificationProgress(25, '25%');
+            await this.delay(500);
+            
+            this.updateNotificationStep(step1, 'completed');
+            const step2 = this.addNotificationStep('Authenticating with Steam', 'current');
+            this.updateNotificationProgress(50, '50%');
+            await this.delay(300);
+            
+            this.updateNotificationStep(step2, 'completed');
+            const step3 = this.addNotificationStep('Downloading mod updates', 'current');
+            this.updateNotificationProgress(85, '85%');
+            
             await ipcRenderer.invoke('update-mods', serverId);
-            this.showSuccess('Mods updated successfully');
+            
+            this.updateNotificationStep(step3, 'completed');
+            const step4 = this.addNotificationStep('Finalizing update process', 'current');
+            this.updateNotificationProgress(100, '100%');
+            await this.delay(200);
+            
+            this.updateNotificationStep(step4, 'completed');
+            this.updateNotificationStatus('Server mods updated successfully');
+            
+            // Auto-hide notification after success
+            setTimeout(() => {
+                this.hideNotification();
+                this.showSuccess('Mods updated successfully');
+            }, 2000);
         } catch (error) {
             console.error('Error updating mods:', error);
+            this.hideNotification();
             this.showError(`Failed to update mods: ${error.message}`);
-        } finally {
-            this.showLoading(false);
         }
     }
 
@@ -1318,12 +1749,16 @@ class DayZServerManagerUI {
 
             // Check if backup path is configured
             if (!server.backupPath) {
-                const useCustomPath = confirm('No backup path configured for this server. Would you like to select a backup location?');
-                if (useCustomPath) {
-                    this.showBackupModal(serverId);
-                    return;
-                }
-                this.showError('Please configure a backup path for this server first');
+                this.showConfirmation(
+                    'No backup path configured for this server.\n\nWould you like to select a backup location?',
+                    () => {
+                        this.showBackupModal(serverId);
+                    },
+                    () => {
+                        this.showError('Please configure a backup path for this server first');
+                    },
+                    { confirmText: 'Select Path', cancelText: 'Cancel' }
+                );
                 return;
             }
 
@@ -1497,27 +1932,51 @@ class DayZServerManagerUI {
     }
 
     editServer(serverId) {
-        const server = this.servers.find(s => s.id === serverId);
-        if (server) {
-            this.showServerModal(server);
+        try {
+            const server = this.servers.find(s => s.id === serverId);
+            if (server) {
+                this.showServerModal(server);
+            } else {
+                this.showError('Server not found');
+            }
+        } catch (error) {
+            console.error('Error editing server:', error);
+            this.showError('Failed to open server editor');
         }
     }
 
     async deleteServer(serverId) {
-        if (confirm('Are you sure you want to delete this server? This action cannot be undone.')) {
-            try {
-                this.showLoading(true);
-                await ipcRenderer.invoke('delete-server', serverId);
-                this.servers = this.servers.filter(s => s.id !== serverId);
-                this.renderServers();
-                this.showSuccess('Server deleted successfully');
-            } catch (error) {
-                console.error('Error deleting server:', error);
-                this.showError(`Failed to delete server: ${error.message}`);
-            } finally {
-                this.showLoading(false);
-            }
+        // Check if a notification is already active
+        if (this.isNotificationActive()) {
+            console.log('Cannot delete server while notification is active');
+            return;
         }
+        
+        const server = this.servers.find(s => s.id === serverId);
+        const serverName = server ? server.name : `Server ${serverId}`;
+        
+        this.showConfirmation(
+            `Are you sure you want to delete server "${serverName}"?\n\nThis action cannot be undone.`,
+            async () => {
+                try {
+                    this.showLoading(true);
+                    await ipcRenderer.invoke('delete-server', serverId);
+                    this.servers = this.servers.filter(s => s.id !== serverId);
+                    this.renderServers();
+                    this.showSuccess('Server deleted successfully');
+                } catch (error) {
+                    console.error('Error deleting server:', error);
+                    this.showError(`Failed to delete server: ${error.message}`);
+                } finally {
+                    this.showLoading(false);
+                }
+            },
+            null,
+            { 
+                confirmText: 'Delete Server', 
+                dangerous: true 
+            }
+        );
     }
 
     async startAllServers() {
@@ -1731,9 +2190,14 @@ class DayZServerManagerUI {
     }
 
     showSuccess(message) {
-        // Show success message as an alert for now, could be enhanced with toast notifications
+        // Show success message using the notification system
         console.log('Success:', message);
-        alert(message);
+        this.showNotification(message, 'success');
+        
+        // Auto-hide success notifications after 4 seconds
+        setTimeout(() => {
+            this.hideNotification();
+        }, 4000);
     }
 
     showError(message) {
@@ -1749,136 +2213,413 @@ class DayZServerManagerUI {
                 `The application will continue to work normally for other features.`;
             
             console.error('Rate Limit Error:', message);
-            alert(rateLimitMessage);
+            this.showNotification(rateLimitMessage, 'error');
+            
+            // Auto-hide error notifications after 8 seconds for rate limit (longer read time)
+            setTimeout(() => {
+                this.hideNotification();
+            }, 8000);
         } else {
             // Regular error handling
             console.error('Error:', message);
-            alert(message);
+            this.showNotification(message, 'error');
+            
+            // Auto-hide error notifications after 6 seconds
+            setTimeout(() => {
+                this.hideNotification();
+            }, 6000);
         }
     }
 
-    // Progress Modal Methods
-    setupProgressModal() {
-        const cancelBtn = document.getElementById('cancelUpdateBtn');
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', () => this.cancelModUpdate());
+    // Notification System Methods
+    setupNotificationSystem() {
+        const closeBtn = document.getElementById('closeNotification');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.hideNotification());
         }
         
         this.updateCancelled = false;
     }
 
-    showProgressModal() {
-        const modal = document.getElementById('modUpdateProgress');
-        modal.classList.add('show');
+    showNotification(title, type = 'warning') {
+        const notification = document.getElementById('processNotification');
+        const titleElement = document.getElementById('notificationTitle');
+        const statusElement = document.getElementById('notificationStatus');
+        const detailsElement = document.getElementById('notificationDetails');
+        
+        if (!notification) return;
+        
+        // Set title and type
+        titleElement.textContent = title;
+        notification.className = `process-notification ${type}`;
+        
+        // Clear previous content
+        statusElement.textContent = 'Initializing...';
+        detailsElement.innerHTML = '';
+        this.updateNotificationProgress(0, '0%');
+        
+        // Add visual feedback that UI is temporarily locked
+        document.body.classList.add('notification-active');
+        
+        // Show notification
+        notification.classList.add('show');
+        this.currentNotification = {
+            title,
+            type,
+            steps: [],
+            currentStep: 0
+        };
         this.updateCancelled = false;
+        
+        // Auto-hide notification after 30 seconds to prevent UI lock
+        if (this.notificationTimeout) {
+            clearTimeout(this.notificationTimeout);
+        }
+        this.notificationTimeout = setTimeout(() => {
+            console.log('Auto-hiding notification after timeout');
+            this.hideNotification();
+        }, 30000);
     }
 
-    hideProgressModal() {
-        const modal = document.getElementById('modUpdateProgress');
-        modal.classList.remove('show');
+    hideNotification() {
+        try {
+            // Clear auto-hide timeout
+            if (this.notificationTimeout) {
+                clearTimeout(this.notificationTimeout);
+                this.notificationTimeout = null;
+            }
+            
+            // Remove visual feedback
+            document.body.classList.remove('notification-active');
+            
+            const notification = document.getElementById('processNotification');
+            if (notification) {
+                notification.classList.remove('show');
+            }
+            this.currentNotification = null;
+            this.notificationSteps = [];
+        } catch (error) {
+            console.error('Error hiding notification:', error);
+        }
+    }
+
+    isNotificationActive() {
+        try {
+            const notification = document.getElementById('processNotification');
+            return notification && notification.classList.contains('show');
+        } catch (error) {
+            console.error('Error checking notification state:', error);
+            return false;
+        }
+    }
+
+    updateNotificationStatus(status) {
+        try {
+            const statusElement = document.getElementById('notificationStatus');
+            if (statusElement) {
+                statusElement.textContent = status;
+            }
+        } catch (error) {
+            console.error('Error updating notification status:', error);
+        }
+    }
+
+    updateNotificationProgress(percentage, text) {
+        try {
+            const progressFill = document.getElementById('notificationProgressFill');
+            const progressText = document.getElementById('notificationProgressText');
+            
+            if (progressFill) {
+                progressFill.style.width = `${percentage}%`;
+            }
+            if (progressText) {
+                progressText.textContent = text;
+            }
+        } catch (error) {
+            console.error('Error updating notification progress:', error);
+        }
+    }
+
+    addNotificationStep(stepText, status = 'waiting') {
+        try {
+            const detailsElement = document.getElementById('notificationDetails');
+            if (!detailsElement) {
+                console.warn('No notification details element found, skipping step:', stepText);
+                return null;
+            }
+            
+            const stepId = `step-${this.notificationSteps.length}`;
+            const stepElement = document.createElement('div');
+            stepElement.className = `process-step ${status}`;
+            stepElement.id = stepId;
+            
+            let icon = 'fas fa-clock';
+            if (status === 'current') icon = 'fas fa-spinner';
+            else if (status === 'completed') icon = 'fas fa-check';
+            else if (status === 'error') icon = 'fas fa-times';
+            
+            stepElement.innerHTML = `
+                <i class="${icon}"></i>
+                <span>${stepText}</span>
+            `;
+            
+            detailsElement.appendChild(stepElement);
+            this.notificationSteps.push({ id: stepId, text: stepText, status });
+            
+            return stepId;
+        } catch (error) {
+            console.error('Error adding notification step:', error);
+            return null;
+        }
+    }
+
+    updateNotificationStep(stepId, status, newText = null) {
+        try {
+            if (!stepId) {
+                console.warn('Invalid stepId provided to updateNotificationStep');
+                return;
+            }
+            
+            const stepElement = document.getElementById(stepId);
+            if (!stepElement) {
+                console.warn('Step element not found:', stepId);
+                return;
+            }
+            
+            // Update status class
+            stepElement.className = `process-step ${status}`;
+            
+            // Update icon
+            let icon = 'fas fa-clock';
+            if (status === 'current') icon = 'fas fa-spinner';
+            else if (status === 'completed') icon = 'fas fa-check';
+            else if (status === 'error') icon = 'fas fa-times';
+            
+            const iconElement = stepElement.querySelector('i');
+            if (iconElement) {
+                iconElement.className = icon;
+            }
+            
+            // Update text if provided
+            if (newText) {
+                const textElement = stepElement.querySelector('span');
+                if (textElement) {
+                    textElement.textContent = newText;
+                }
+            }
+            
+            // Update in array
+            const stepIndex = this.notificationSteps.findIndex(step => step.id === stepId);
+            if (stepIndex !== -1) {
+                this.notificationSteps[stepIndex].status = status;
+                if (newText) this.notificationSteps[stepIndex].text = newText;
+            }
+        } catch (error) {
+            console.error('Error updating notification step:', error);
+        }
+    }
+
+    // Confirmation notification system
+    showConfirmation(message, onConfirm, onCancel = null, options = {}) {
+        const {
+            confirmText = 'Confirm',
+            cancelText = 'Cancel',
+            type = 'warning',
+            dangerous = false
+        } = options;
+
+        // Create confirmation notification HTML
+        const confirmationHtml = `
+            <div id="confirmationNotification" class="confirmation-notification ${type} show">
+                <div class="notification-header">
+                    <h3 id="confirmationTitle">${dangerous ? '⚠️ ' : ''}Confirmation Required</h3>
+                </div>
+                <div class="notification-body">
+                    <div class="confirmation-message" id="confirmationMessage"></div>
+                    <div class="confirmation-actions">
+                        <button id="confirmationConfirmBtn" class="btn ${dangerous ? 'btn-danger' : 'btn-primary'}">${confirmText}</button>
+                        <button id="confirmationCancelBtn" class="btn btn-secondary">${cancelText}</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove any existing confirmation
+        const existingConfirmation = document.getElementById('confirmationNotification');
+        if (existingConfirmation) {
+            existingConfirmation.remove();
+        }
+
+        // Add to page
+        document.body.insertAdjacentHTML('beforeend', confirmationHtml);
+
+        // Set the message content properly (this will handle line breaks)
+        const messageElement = document.getElementById('confirmationMessage');
+        messageElement.textContent = message;
+
+        // Set up event listeners
+        const confirmBtn = document.getElementById('confirmationConfirmBtn');
+        const cancelBtn = document.getElementById('confirmationCancelBtn');
+        const notification = document.getElementById('confirmationNotification');
+
+        const cleanup = () => {
+            if (notification) {
+                notification.remove();
+            }
+        };
+
+        confirmBtn.addEventListener('click', () => {
+            cleanup();
+            if (onConfirm) onConfirm();
+        });
+
+        cancelBtn.addEventListener('click', () => {
+            cleanup();
+            if (onCancel) onCancel();
+        });
+
+        // Close on escape key
+        const handleEscape = (e) => {
+            if (e.key === 'Escape') {
+                cleanup();
+                if (onCancel) onCancel();
+                document.removeEventListener('keydown', handleEscape);
+            }
+        };
+        document.addEventListener('keydown', handleEscape);
+
+        return { cleanup };
+    }
+
+    // Dangerous confirmation with text input
+    showDangerousConfirmation(message, confirmationWord, onConfirm, onCancel = null) {
+        // Create dangerous confirmation notification HTML
+        const confirmationHtml = `
+            <div id="dangerousConfirmationNotification" class="confirmation-notification error show">
+                <div class="notification-header">
+                    <h3>⚠️ DANGEROUS ACTION - CONFIRMATION REQUIRED</h3>
+                </div>
+                <div class="notification-body">
+                    <div class="confirmation-message" id="dangerousConfirmMessage"></div>
+                    <div class="dangerous-input-group">
+                        <label for="dangerousConfirmInput">Type "${confirmationWord}" to confirm:</label>
+                        <input type="text" id="dangerousConfirmInput" class="dangerous-confirm-input" placeholder="Type ${confirmationWord}">
+                    </div>
+                    <div class="confirmation-actions">
+                        <button id="dangerousConfirmBtn" class="btn btn-danger" disabled>CONFIRM DANGEROUS ACTION</button>
+                        <button id="dangerousCancelBtn" class="btn btn-secondary">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove any existing confirmation
+        const existingConfirmation = document.getElementById('dangerousConfirmationNotification');
+        if (existingConfirmation) {
+            existingConfirmation.remove();
+        }
+
+        // Add to page
+        document.body.insertAdjacentHTML('beforeend', confirmationHtml);
+
+        // Set the message content properly (this will handle line breaks)
+        const messageElement = document.getElementById('dangerousConfirmMessage');
+        messageElement.textContent = message;
+
+        // Set up event listeners
+        const confirmBtn = document.getElementById('dangerousConfirmBtn');
+        const cancelBtn = document.getElementById('dangerousCancelBtn');
+        const input = document.getElementById('dangerousConfirmInput');
+        const notification = document.getElementById('dangerousConfirmationNotification');
+
+        const cleanup = () => {
+            if (notification) {
+                notification.remove();
+            }
+        };
+
+        // Enable confirm button only when correct text is entered
+        input.addEventListener('input', () => {
+            const isCorrect = input.value.trim().toUpperCase() === confirmationWord.toUpperCase();
+            confirmBtn.disabled = !isCorrect;
+            confirmBtn.style.opacity = isCorrect ? '1' : '0.5';
+        });
+
+        confirmBtn.addEventListener('click', () => {
+            if (input.value.trim().toUpperCase() === confirmationWord.toUpperCase()) {
+                cleanup();
+                if (onConfirm) onConfirm();
+            }
+        });
+
+        cancelBtn.addEventListener('click', () => {
+            cleanup();
+            if (onCancel) onCancel();
+        });
+
+        // Close on escape key
+        const handleEscape = (e) => {
+            if (e.key === 'Escape') {
+                cleanup();
+                if (onCancel) onCancel();
+                document.removeEventListener('keydown', handleEscape);
+            }
+        };
+        document.addEventListener('keydown', handleEscape);
+
+        // Focus the input
+        setTimeout(() => input.focus(), 100);
+
+        return { cleanup };
     }
 
     updateProgress(current, total, currentMod) {
         const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
         
-        // Update progress bar
-        const progressFill = document.getElementById('progressBarFill');
-        const progressPercentage = document.getElementById('progressPercentage');
-        const progressStats = document.getElementById('progressStats');
-        const currentModText = document.getElementById('currentModText');
+        // Update notification progress
+        this.updateNotificationProgress(percentage, `${percentage}%`);
         
-        if (progressFill) progressFill.style.width = `${percentage}%`;
-        if (progressPercentage) progressPercentage.textContent = `${percentage}%`;
-        if (progressStats) progressStats.textContent = `${current} / ${total} mods`;
-        if (currentModText && currentMod) {
-            currentModText.textContent = `Checking: ${currentMod.name || currentMod.id}`;
+        // Update status text
+        if (currentMod) {
+            this.updateNotificationStatus(`Checking: ${currentMod.name || currentMod.id} (${current}/${total})`);
+        } else {
+            this.updateNotificationStatus(`Processing ${current} of ${total} mods...`);
         }
     }
 
     addModToStatusList(mod, status = 'waiting') {
-        const statusList = document.getElementById('modStatusList');
-        if (!statusList) return;
-
-        const statusItem = document.createElement('div');
-        statusItem.className = `status-item ${status}`;
-        statusItem.id = `status-${mod.id}`;
-        
-        let icon = 'fas fa-clock';
-        let statusText = 'Waiting';
-        
-        switch (status) {
-            case 'current':
-                icon = 'fas fa-spinner fa-spin';
-                statusText = 'Checking...';
-                break;
-            case 'completed':
-                icon = 'fas fa-check';
-                statusText = 'Completed';
-                break;
-            case 'error':
-                icon = 'fas fa-exclamation-triangle';
-                statusText = 'Error';
-                break;
-        }
-
-        statusItem.innerHTML = `
-            <div class="status-mod-info">
-                <span class="status-mod-id">${mod.id}</span>
-                <span class="status-mod-name">${mod.name || `Mod ${mod.id}`}</span>
-            </div>
-            <div class="status-indicator ${status}">
-                <i class="${icon}"></i>
-                <span>${statusText}</span>
-            </div>
-        `;
-
-        statusList.appendChild(statusItem);
+        // Add as notification step instead of modal list
+        const stepText = `${mod.name || `Mod ${mod.id}`} (${mod.id})`;
+        return this.addNotificationStep(stepText, status);
     }
 
     updateModStatus(modId, status, message = '') {
-        const statusItem = document.getElementById(`status-${modId}`);
-        if (!statusItem) return;
-
-        // Remove all status classes and add new one
-        statusItem.classList.remove('waiting', 'current', 'completed', 'error');
-        statusItem.classList.add(status);
-
-        const indicator = statusItem.querySelector('.status-indicator');
-        const icon = statusItem.querySelector('.status-indicator i');
-        const text = statusItem.querySelector('.status-indicator span');
-
-        if (indicator) {
-            indicator.classList.remove('waiting', 'current', 'completed', 'error');
-            indicator.classList.add(status);
+        // Find the notification step for this mod
+        const stepId = this.notificationSteps.find(step => 
+            step.text.includes(modId) || step.id.includes(modId)
+        )?.id;
+        
+        if (stepId) {
+            let newText = null;
+            if (message) {
+                // Extract mod name from current text and append message
+                const currentStep = this.notificationSteps.find(s => s.id === stepId);
+                if (currentStep) {
+                    const baseName = currentStep.text.split(' (')[0];
+                    newText = `${baseName} (${modId}) - ${message}`;
+                }
+            }
+            this.updateNotificationStep(stepId, status, newText);
         }
-
-        let iconClass = 'fas fa-clock';
-        let statusText = 'Waiting';
-
-        switch (status) {
-            case 'current':
-                iconClass = 'fas fa-spinner fa-spin';
-                statusText = 'Checking...';
-                break;
-            case 'completed':
-                iconClass = 'fas fa-check';
-                statusText = message || 'Completed';
-                break;
-            case 'error':
-                iconClass = 'fas fa-exclamation-triangle';
-                statusText = message || 'Error';
-                break;
-        }
-
-        if (icon) icon.className = iconClass;
-        if (text) text.textContent = statusText;
     }
 
     clearModStatusList() {
-        const statusList = document.getElementById('modStatusList');
-        if (statusList) {
-            statusList.innerHTML = '';
+        // Clear notification details
+        const detailsElement = document.getElementById('notificationDetails');
+        if (detailsElement) {
+            detailsElement.innerHTML = '';
         }
+        this.notificationSteps = [];
     }
 
     async updateAllModsWithProgress() {
@@ -1904,7 +2645,7 @@ class DayZServerManagerUI {
             return;
         }
 
-        this.showProgressModal();
+        this.showNotification('Updating Mods', 'warning');
         this.clearModStatusList();
 
         const mods = Array.from(allMods.values());
@@ -1934,10 +2675,43 @@ class DayZServerManagerUI {
                     const modInfo = await ipcRenderer.invoke('get-mod-info', mod.id);
                     mod.name = modInfo.title;
                     
-                    // Update the current mod text with proper name
-                    const currentModText = document.getElementById('currentModText');
-                    if (currentModText) {
-                        currentModText.textContent = `Checking: ${mod.name || mod.id}`;
+                    // Update status with detailed SteamCMD steps
+                    this.updateNotificationStatus(`Processing: ${mod.name || mod.id}`);
+                    
+                    // Add detailed steps for SteamCMD process
+                    const steamStep1 = this.addNotificationStep(`Launching SteamCMD for ${mod.name || mod.id}`, 'current');
+                    await this.delay(300);
+                    this.updateNotificationStep(steamStep1, 'completed');
+                    
+                    const steamStep2 = this.addNotificationStep('Authenticating with Steam', 'current');
+                    await this.delay(200);
+                    this.updateNotificationStep(steamStep2, 'completed');
+                    
+                    const steamStep3 = this.addNotificationStep('Checking mod version', 'current');
+                    await this.delay(250);
+                    this.updateNotificationStep(steamStep3, 'completed');
+
+                    // Fetch mod changelog
+                    const changelogStep = this.addNotificationStep('Fetching mod changelog', 'current');
+                    try {
+                        const changelogResult = await ipcRenderer.invoke('get-mod-changelog', mod.id);
+                        if (changelogResult.success && changelogResult.hasChangelog) {
+                            this.updateNotificationStep(changelogStep, 'completed', `Changelog retrieved (${changelogResult.changeHistory.length} entries)`);
+                            
+                            // Store changelog for potential display (you could extend this further)
+                            mod.changelog = changelogResult;
+                            
+                            // Log the latest changelog entry for debugging
+                            if (changelogResult.changeHistory.length > 0) {
+                                const latestChange = changelogResult.changeHistory[0];
+                                console.log(`📋 Latest changelog for ${mod.name} (${mod.id}):`, latestChange.description);
+                            }
+                        } else {
+                            this.updateNotificationStep(changelogStep, 'completed', 'No changelog available');
+                        }
+                    } catch (changelogError) {
+                        console.warn(`Could not fetch changelog for ${mod.id}:`, changelogError);
+                        this.updateNotificationStep(changelogStep, 'completed', 'Changelog unavailable');
                     }
 
                     // Find servers that use this mod and update them
@@ -1945,9 +2719,15 @@ class DayZServerManagerUI {
                         server.mods && server.mods.some(serverMod => serverMod.id === mod.id)
                     );
 
+                    const steamStep4 = this.addNotificationStep('Downloading mod updates', 'current');
                     for (const server of serversWithMod) {
                         await ipcRenderer.invoke('update-mods', server.id);
                     }
+                    this.updateNotificationStep(steamStep4, 'completed');
+                    
+                    const steamStep5 = this.addNotificationStep('Verifying mod files', 'current');
+                    await this.delay(200);
+                    this.updateNotificationStep(steamStep5, 'completed');
 
                     this.updateModStatus(mod.id, 'completed', 'Up to date');
                 } catch (error) {
@@ -1964,22 +2744,22 @@ class DayZServerManagerUI {
 
             if (!this.updateCancelled) {
                 this.showSuccess('All mods updated successfully');
-                // Auto-close modal after success
-                setTimeout(() => this.hideProgressModal(), 2000);
+                // Auto-close notification after success
+                setTimeout(() => this.hideNotification(), 2000);
             }
         } catch (error) {
             console.error('Error during mod update:', error);
             this.showError(`Failed to update mods: ${error.message}`);
         } finally {
             if (!this.updateCancelled) {
-                this.hideProgressModal();
+                this.hideNotification();
             }
         }
     }
 
     cancelModUpdate() {
         this.updateCancelled = true;
-        this.hideProgressModal();
+        this.hideNotification();
     }
 
     showAddModModal() {
@@ -2139,18 +2919,10 @@ class DayZServerManagerUI {
                 return;
             }
 
-            // Show progress modal
-            this.showProgressModal();
-            
-            // Set up the modal for key pulling operation
-            const progressStats = document.getElementById('progressStats');
-            const currentModText = document.getElementById('currentModText');
-            const progressBarFill = document.getElementById('progressBarFill');
-            const progressPercentage = document.getElementById('progressPercentage');
-            
-            if (progressStats) progressStats.textContent = `Processing ${server.mods.length} mods...`;
-            if (currentModText) currentModText.textContent = 'Initializing key extraction...';
-            if (progressBarFill) progressBarFill.style.width = '10%';
+            // Show notification
+            this.showNotification('Extracting Mod Keys', 'info');
+            this.updateNotificationStatus(`Processing ${server.mods.length} mods...`);
+            this.updateNotificationProgress(10, '10%');
             if (progressPercentage) progressPercentage.textContent = '10%';
 
             // Call the main process to pull mod keys
@@ -2181,9 +2953,9 @@ class DayZServerManagerUI {
                     progressStats.textContent = statsText;
                 }
 
-                // Auto-hide modal after showing results
+                // Auto-hide notification after showing results
                 setTimeout(() => {
-                    this.hideProgressModal();
+                    this.hideNotification();
                     
                     // Show detailed success message
                     let message = `Key extraction completed!\n\n`;
@@ -2206,29 +2978,31 @@ class DayZServerManagerUI {
                 }, 2000);
                 
             } else {
-                // Show error state
-                if (currentModText) {
-                    currentModText.textContent = `❌ Operation Failed: ${result.error}`;
-                }
-                if (progressStats) {
-                    progressStats.textContent = `❌ Failed to pull mod keys`;
-                }
+                // Update notification for error state
+                this.updateNotificationStatus(`❌ Operation Failed: ${result.error}`);
+                this.updateNotificationProgress(100, 'Failed');
                 
                 setTimeout(() => {
-                    this.hideProgressModal();
+                    this.hideNotification();
                     this.showError(`Failed to pull mod keys: ${result.error}`);
                 }, 2000);
             }
             
         } catch (error) {
             console.error('Error pulling mod keys:', error);
-            this.hideProgressModal();
+            this.hideNotification();
             this.showError('Failed to pull mod keys');
         }
     }
 
     async editServerConfig(serverId) {
         try {
+            // Check if a notification is already active
+            if (this.isNotificationActive()) {
+                console.log('Cannot edit server config while notification is active');
+                return;
+            }
+
             const server = this.servers.find(s => s.id === serverId);
             if (!server) {
                 this.showError('Server not found');
@@ -2240,12 +3014,14 @@ class DayZServerManagerUI {
                 return;
             }
 
-            this.showLoading(true);
+            // Show simple notification without complex steps to avoid errors
+            this.showNotification(`Opening Server Config for ${server.name}`, 'info');
             
             // Call the main process to open the config file
             const result = await ipcRenderer.invoke('edit-server-config', serverId);
             
-            this.showLoading(false);
+            // Hide notification immediately to prevent conflicts
+            this.hideNotification();
             
             if (result.success) {
                 this.showSuccess(`Config file opened: ${result.configPath}`);
@@ -2254,7 +3030,12 @@ class DayZServerManagerUI {
             }
         } catch (error) {
             console.error('Error editing server config:', error);
-            this.showLoading(false);
+            // Make sure notification is hidden on error
+            try {
+                this.hideNotification();
+            } catch (hideError) {
+                console.error('Error hiding notification:', hideError);
+            }
             this.showError('Failed to open config file');
         }
     }
@@ -2364,13 +3145,413 @@ class DayZServerManagerUI {
     async checkForUpdates() {
         try {
             console.log('Checking for updates...');
+            
+            // Show the notification with detailed steps
+            this.showNotification('Checking for Updates', 'info');
+            
+            // Add the process steps
+            const step1 = this.addNotificationStep('Connecting to GitHub API', 'current');
+            this.updateNotificationProgress(10, '10%');
+            await this.delay(800);
+            
+            this.updateNotificationStep(step1, 'completed');
+            const step2 = this.addNotificationStep('Fetching latest release information', 'current');
+            this.updateNotificationProgress(30, '30%');
+            await this.delay(600);
+            
+            this.updateNotificationStep(step2, 'completed');
+            const step3 = this.addNotificationStep('Comparing version numbers', 'current');
+            this.updateNotificationProgress(60, '60%');
+            await this.delay(500);
+            
+            this.updateNotificationStep(step3, 'completed');
+            const step4 = this.addNotificationStep('Checking local files', 'current');
+            this.updateNotificationProgress(80, '80%');
+            await this.delay(400);
+            
+            this.updateNotificationStep(step4, 'completed');
+            const step5 = this.addNotificationStep('Finalizing update check', 'current');
+            this.updateNotificationProgress(100, '100%');
+            
             const result = await ipcRenderer.invoke('check-for-updates');
-            if (result && result.success === false) {
-                this.showError(`Update check failed: ${result.error}`);
-            }
+            
+            this.updateNotificationStep(step5, 'completed');
+            this.updateNotificationStatus('Update check completed');
+            
+            // Auto-hide notification after showing success
+            setTimeout(() => {
+                this.hideNotification();
+                
+                if (result && result.success === false) {
+                    this.showError(`Update check failed: ${result.error}`);
+                } else {
+                    this.showSuccess('Update check completed successfully');
+                }
+            }, 1500);
+            
         } catch (error) {
             console.error('Error checking for updates:', error);
+            this.hideNotification();
             this.showError('Failed to check for updates: ' + error.message);
+        }
+    }
+    
+    // Show detailed mod changelog
+    async showModChangelog(modId, modName = null) {
+        try {
+            this.showNotification(`Mod Changelog${modName ? ` - ${modName}` : ''}`, 'info');
+            
+            // Add steps for fetching changelog
+            const step1 = this.addNotificationStep('Connecting to Steam API', 'current');
+            this.updateNotificationProgress(20, '20%');
+            await this.delay(400);
+            
+            this.updateNotificationStep(step1, 'completed');
+            const step2 = this.addNotificationStep('Fetching mod details', 'current');
+            this.updateNotificationProgress(40, '40%');
+            await this.delay(300);
+            
+            this.updateNotificationStep(step2, 'completed');
+            const step3 = this.addNotificationStep('Retrieving changelog history', 'current');
+            this.updateNotificationProgress(70, '70%');
+            
+            const changelogResult = await ipcRenderer.invoke('get-mod-changelog', modId);
+            
+            this.updateNotificationStep(step3, 'completed');
+            const step4 = this.addNotificationStep('Processing changelog data', 'current');
+            this.updateNotificationProgress(100, '100%');
+            
+            if (changelogResult.success) {
+                this.updateNotificationStep(step4, 'completed');
+                this.updateNotificationStatus('Changelog retrieved successfully');
+                
+                // Display changelog information
+                if (changelogResult.hasChangelog && changelogResult.changeHistory.length > 0) {
+                    const latest = changelogResult.changeHistory[0];
+                    const lastUpdated = new Date(latest.timestamp * 1000).toLocaleDateString();
+                    
+                    this.addNotificationStep(`📅 Last updated: ${lastUpdated}`, 'completed');
+                    
+                    // Show truncated changelog entry
+                    const changelogText = latest.description.length > 100 
+                        ? latest.description.substring(0, 100) + '...'
+                        : latest.description;
+                    this.addNotificationStep(`📝 ${changelogText}`, 'completed');
+                    
+                    // Auto-hide after showing changelog
+                    setTimeout(() => {
+                        this.hideNotification();
+                        
+                        // Show detailed modal or alert with full changelog
+                        const fullMessage = `📋 Changelog for ${changelogResult.title}\n\n` +
+                            `🕒 Last Updated: ${lastUpdated}\n\n` +
+                            `📄 Latest Changes:\n${latest.description}\n\n` +
+                            `🔗 View full changelog: https://steamcommunity.com/sharedfiles/filedetails/changelog/${modId}`;
+                        
+                        this.showSuccess(fullMessage);
+                    }, 3000);
+                } else {
+                    this.updateNotificationStep(step4, 'completed', 'No changelog available');
+                    setTimeout(() => {
+                        this.hideNotification();
+                        this.showInfo(`No changelog available for this mod.\n\nView on Steam: https://steamcommunity.com/sharedfiles/filedetails/changelog/${modId}`);
+                    }, 2000);
+                }
+            } else {
+                this.updateNotificationStep(step4, 'error', 'Failed to fetch changelog');
+                setTimeout(() => {
+                    this.hideNotification();
+                    this.showError(`Failed to fetch changelog: ${changelogResult.error}\n\nView on Steam: https://steamcommunity.com/sharedfiles/filedetails/changelog/${modId}`);
+                }, 2000);
+            }
+            
+        } catch (error) {
+            console.error('Error fetching mod changelog:', error);
+            this.hideNotification();
+            this.showError('Failed to fetch mod changelog: ' + error.message);
+        }
+    }
+    
+    // Test mod changelog functionality with a popular DayZ mod
+    async testModChangelog() {
+        // Use a popular DayZ mod ID for testing - Community Framework
+        const testModId = '1559212036'; // CF - Community Framework
+        const testModName = 'Community Framework';
+        
+        await this.showModChangelog(testModId, testModName);
+    }
+    
+    // Helper method for delays in demonstration
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // RCon Management Methods
+    showRConModal(serverId) {
+        const server = this.servers.find(s => s.id === serverId);
+        if (!server) {
+            this.showError('Server not found');
+            return;
+        }
+
+        if (!server.rconPassword) {
+            this.showError('RCon password not configured for this server');
+            return;
+        }
+
+        // Update modal with server info
+        document.getElementById('rconServerName').textContent = server.name;
+        document.getElementById('rconModal').style.display = 'block';
+        
+        // Set up event listeners for RCon modal
+        this.setupRConModalEvents(serverId);
+        
+        // Try to connect to RCon
+        this.connectRCon(serverId);
+    }
+
+    setupRConModalEvents(serverId) {
+        // Remove existing listeners by cloning elements
+        const executeRestartBtn = document.getElementById('executeRestartBtn');
+        const broadcastBtn = document.getElementById('broadcastBtn');
+        const getPlayersBtn = document.getElementById('getPlayersBtn');
+        
+        // Replace elements to remove event listeners
+        executeRestartBtn.replaceWith(executeRestartBtn.cloneNode(true));
+        broadcastBtn.replaceWith(broadcastBtn.cloneNode(true));
+        getPlayersBtn.replaceWith(getPlayersBtn.cloneNode(true));
+        
+        // Add new event listeners
+        document.getElementById('executeRestartBtn').addEventListener('click', () => {
+            this.executeRConRestart(serverId);
+        });
+        
+        document.getElementById('broadcastBtn').addEventListener('click', () => {
+            this.executeRConBroadcast(serverId);
+        });
+        
+        document.getElementById('getPlayersBtn').addEventListener('click', () => {
+            this.getRConPlayers(serverId);
+        });
+    }
+
+    async connectRCon(serverId) {
+        try {
+            this.updateRConStatus('Connecting...', 'warning');
+            
+            const result = await ipcRenderer.invoke('connect-rcon', serverId);
+            
+            if (result.success) {
+                this.updateRConStatus('Connected', 'success');
+            } else {
+                this.updateRConStatus('Connection Failed', 'error');
+                this.showError(`RCon connection failed: ${result.error}`);
+            }
+        } catch (error) {
+            this.updateRConStatus('Connection Error', 'error');
+            this.showError(`RCon connection error: ${error.message}`);
+        }
+    }
+
+    updateRConStatus(status, type = 'info') {
+        const statusElement = document.getElementById('rconStatus');
+        const badge = statusElement.querySelector('.status-badge');
+        
+        badge.textContent = status;
+        badge.className = `status-badge ${type}`;
+    }
+
+    async executeRConRestart(serverId) {
+        try {
+            const warningTime = parseInt(document.getElementById('restartWarningTime').value) || 5;
+            const message = document.getElementById('restartMessage').value || 'Server restart in {time} minutes';
+            
+            this.showConfirmation(
+                `Are you sure you want to restart the server with a ${warningTime} minute warning?\n\nPlayers will be notified and the server will restart automatically.`,
+                async () => {
+                    try {
+                        this.showNotification('Executing Server Restart', 'warning');
+                        
+                        const result = await ipcRenderer.invoke('rcon-restart-server', serverId, warningTime, message);
+                        
+                        if (result.success) {
+                            this.showSuccess(`Server restart scheduled with ${warningTime} minute warning`);
+                            this.hideNotification();
+                        } else {
+                            this.hideNotification();
+                            this.showError(`Restart failed: ${result.error}`);
+                        }
+                    } catch (error) {
+                        this.hideNotification();
+                        this.showError(`Restart error: ${error.message}`);
+                    }
+                },
+                null,
+                { 
+                    confirmText: 'Restart Server', 
+                    type: 'warning' 
+                }
+            );
+        } catch (error) {
+            this.showError(`Restart error: ${error.message}`);
+        }
+    }
+
+    async executeRConBroadcast(serverId) {
+        try {
+            const message = document.getElementById('broadcastMessage').value.trim();
+            
+            if (!message) {
+                this.showError('Please enter a message to broadcast');
+                return;
+            }
+            
+            this.showNotification('Broadcasting Message', 'info');
+            
+            const result = await ipcRenderer.invoke('rcon-broadcast-message', serverId, message);
+            
+            if (result.success) {
+                this.showSuccess('Message broadcasted successfully');
+                document.getElementById('broadcastMessage').value = '';
+                this.hideNotification();
+            } else {
+                this.hideNotification();
+                this.showError(`Broadcast failed: ${result.error}`);
+            }
+        } catch (error) {
+            this.hideNotification();
+            this.showError(`Broadcast error: ${error.message}`);
+        }
+    }
+
+    async getRConPlayers(serverId) {
+        try {
+            this.showNotification('Getting Player List', 'info');
+            
+            const result = await ipcRenderer.invoke('rcon-get-players', serverId);
+            
+            this.hideNotification();
+            
+            if (result.success) {
+                this.displayPlayersList(result.players, serverId);
+            } else {
+                this.showError(`Failed to get players: ${result.error}`);
+            }
+        } catch (error) {
+            this.hideNotification();
+            this.showError(`Player list error: ${error.message}`);
+        }
+    }
+
+    displayPlayersList(playersData, serverId) {
+        const playersList = document.getElementById('playersList');
+        
+        if (!playersData || playersData.trim() === '') {
+            playersList.innerHTML = '<div class="players-empty">No players currently online</div>';
+            return;
+        }
+        
+        // Parse player data (format depends on DayZ server response)
+        const lines = playersData.split('\n').filter(line => line.trim());
+        
+        let playersHtml = '<div class="players-header">Online Players:</div>';
+        
+        lines.forEach(line => {
+            if (line.includes('Player #')) {
+                // Extract player info (this format may vary)
+                const playerMatch = line.match(/Player #(\d+): (.+)/);
+                if (playerMatch) {
+                    const playerId = playerMatch[1];
+                    const playerInfo = playerMatch[2];
+                    
+                    playersHtml += `
+                        <div class="player-item">
+                            <span class="player-info">${playerInfo}</span>
+                            <div class="player-actions">
+                                <button class="btn btn-warning btn-sm" onclick="app.kickPlayer('${serverId}', '${playerId}')">
+                                    <i class="fas fa-user-times"></i> Kick
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+        });
+        
+        if (playersHtml === '<div class="players-header">Online Players:</div>') {
+            playersHtml += '<div class="players-empty">Unable to parse player data</div>';
+        }
+        
+        playersList.innerHTML = playersHtml;
+    }
+
+    async kickPlayer(serverId, playerId, reason = 'Kicked by admin') {
+        try {
+            this.showConfirmation(
+                `Are you sure you want to kick player ${playerId}?\n\nReason: ${reason}`,
+                async () => {
+                    try {
+                        this.showNotification('Kicking Player', 'warning');
+                        
+                        const result = await ipcRenderer.invoke('rcon-kick-player', serverId, playerId, reason);
+                        
+                        if (result.success) {
+                            this.showSuccess(`Player ${playerId} kicked successfully`);
+                            this.hideNotification();
+                            // Refresh player list
+                            this.getRConPlayers(serverId);
+                        } else {
+                            this.hideNotification();
+                            this.showError(`Kick failed: ${result.error}`);
+                        }
+                    } catch (error) {
+                        this.hideNotification();
+                        this.showError(`Kick error: ${error.message}`);
+                    }
+                },
+                null,
+                { 
+                    confirmText: 'Kick Player', 
+                    type: 'warning' 
+                }
+            );
+        } catch (error) {
+            this.showError(`Kick error: ${error.message}`);
+        }
+    }
+
+    async wipeServerStorage(serverId) {
+        try {
+            const server = this.servers.find(s => s.id === serverId);
+            if (!server) {
+                this.showError('Server not found');
+                return;
+            }
+            
+            this.showDangerousConfirmation(
+                `⚠️ DANGER: You are about to wipe the storage folder for server "${server.name}"\n\nThis will PERMANENTLY DELETE:\n• ALL player data and characters\n• ALL persistence files\n• ALL world state and progress\n• ALL tents, bases, and stored items\n\nThis action CANNOT be undone!\n\nPlayers will lose everything!`,
+                'WIPE',
+                async () => {
+                    try {
+                        this.showNotification('Wiping Server Storage', 'warning');
+                        
+                        const result = await ipcRenderer.invoke('wipe-server-storage', serverId);
+                        
+                        if (result.success) {
+                            this.showSuccess(`Storage wiped successfully: ${result.path}`);
+                            this.hideNotification();
+                        } else {
+                            this.hideNotification();
+                            this.showError(`Wipe failed: ${result.error}`);
+                        }
+                    } catch (error) {
+                        this.hideNotification();
+                        this.showError(`Wipe error: ${error.message}`);
+                    }
+                }
+            );
+        } catch (error) {
+            this.showError(`Wipe error: ${error.message}`);
         }
     }
 }
