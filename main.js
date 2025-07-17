@@ -122,6 +122,12 @@ class DayZServerManager {
         
         // Setup IPC handlers
         this.setupIpcHandlers();
+        
+        // Create the main window
+        this.createWindow();
+        
+        // Setup application menu
+        this.setupMenu();
     }
 
     async loadConfigurations() {
@@ -1805,4 +1811,19 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
     // Cleanup: stop all running servers
     // This will be implemented based on the manager instance
+});
+
+// Initialize the application
+let serverManager;
+
+app.whenReady().then(() => {
+    serverManager = new DayZServerManager();
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        if (serverManager) {
+            serverManager.createWindow();
+        }
+    }
 });
