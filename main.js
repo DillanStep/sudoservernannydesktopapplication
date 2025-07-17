@@ -959,20 +959,95 @@ class Missions
 
             // Add mods if configured
             if (server.mods && server.mods.length > 0) {
-                const validMods = server.mods.filter(mod => mod && mod.folderName && mod.folderName.trim() !== '');
+                const validMods = server.mods.filter(mod => mod && mod.id && mod.id.trim() !== '');
                 if (validMods.length > 0) {
-                    console.log(`Starting server ${server.name} with ${validMods.length} mods: ${validMods.map(m => m.folderName).join(', ')}`);
-                    const modFolders = validMods.map(mod => mod.folderName).join(';');
-                    args.push(`-mod=${modFolders}`);
+                    console.log(`Starting server ${server.name} with ${validMods.length} mods: ${validMods.map(m => m.id).join(', ')}`);
+                    
+                    // Build mod paths - try workshop path first, then server directory
+                    const modPaths = [];
+                    for (const mod of validMods) {
+                        // Try workshop path first (recommended)
+                        const workshopPath = path.join(this.settings.workshopPath || path.join(this.settings.steamCmdPath, 'steamapps', 'workshop', 'content', '221100'), mod.id);
+                        
+                        try {
+                            if (await fs.pathExists(workshopPath)) {
+                                modPaths.push(workshopPath);
+                                console.log(`Using workshop path for mod ${mod.id}: ${workshopPath}`);
+                            } else if (mod.folderName) {
+                                // Fallback to server directory with folder name
+                                const serverModPath = path.join(server.serverPath, mod.folderName);
+                                if (await fs.pathExists(serverModPath)) {
+                                    modPaths.push(mod.folderName); // Use relative path for server directory mods
+                                    console.log(`Using server directory for mod ${mod.id}: ${mod.folderName}`);
+                                } else {
+                                    console.warn(`Mod ${mod.id} not found at workshop path (${workshopPath}) or server directory (${serverModPath})`);
+                                }
+                            } else {
+                                console.warn(`Mod ${mod.id} has no folderName and not found in workshop`);
+                            }
+                        } catch (error) {
+                            console.error(`Error checking mod path for ${mod.id}:`, error);
+                            // Fallback to folder name if available
+                            if (mod.folderName) {
+                                modPaths.push(mod.folderName);
+                            }
+                        }
+                    }
+                    
+                    if (modPaths.length > 0) {
+                        const modFolders = modPaths.join(';');
+                        args.push(`-mod=${modFolders}`);
+                        console.log(`Final mod parameter: -mod=${modFolders}`);
+                    } else {
+                        console.warn('No valid mod paths found, starting server without mods');
+                    }
                 }
             }
 
             // Add server mods if configured
             if (server.serverMods && server.serverMods.length > 0) {
-                const validServerMods = server.serverMods.filter(mod => mod && mod.folderName && mod.folderName.trim() !== '');
+                const validServerMods = server.serverMods.filter(mod => mod && mod.id && mod.id.trim() !== '');
                 if (validServerMods.length > 0) {
-                    const serverModFolders = validServerMods.map(mod => mod.folderName).join(';');
-                    args.push(`-serverMod=${serverModFolders}`);
+                    console.log(`Starting server ${server.name} with ${validServerMods.length} server mods: ${validServerMods.map(m => m.id).join(', ')}`);
+                    
+                    // Build server mod paths - try workshop path first, then server directory
+                    const serverModPaths = [];
+                    for (const mod of validServerMods) {
+                        // Try workshop path first (recommended)
+                        const workshopPath = path.join(this.settings.workshopPath || path.join(this.settings.steamCmdPath, 'steamapps', 'workshop', 'content', '221100'), mod.id);
+                        
+                        try {
+                            if (await fs.pathExists(workshopPath)) {
+                                serverModPaths.push(workshopPath);
+                                console.log(`Using workshop path for server mod ${mod.id}: ${workshopPath}`);
+                            } else if (mod.folderName) {
+                                // Fallback to server directory with folder name
+                                const serverModPath = path.join(server.serverPath, mod.folderName);
+                                if (await fs.pathExists(serverModPath)) {
+                                    serverModPaths.push(mod.folderName); // Use relative path for server directory mods
+                                    console.log(`Using server directory for server mod ${mod.id}: ${mod.folderName}`);
+                                } else {
+                                    console.warn(`Server mod ${mod.id} not found at workshop path (${workshopPath}) or server directory (${serverModPath})`);
+                                }
+                            } else {
+                                console.warn(`Server mod ${mod.id} has no folderName and not found in workshop`);
+                            }
+                        } catch (error) {
+                            console.error(`Error checking server mod path for ${mod.id}:`, error);
+                            // Fallback to folder name if available
+                            if (mod.folderName) {
+                                serverModPaths.push(mod.folderName);
+                            }
+                        }
+                    }
+                    
+                    if (serverModPaths.length > 0) {
+                        const serverModFolders = serverModPaths.join(';');
+                        args.push(`-serverMod=${serverModFolders}`);
+                        console.log(`Final server mod parameter: -serverMod=${serverModFolders}`);
+                    } else {
+                        console.warn('No valid server mod paths found, starting server without server mods');
+                    }
                 }
             }
 
