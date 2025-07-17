@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SUDO Server Nanny</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1><i class="fas fa-server"></i> SUDO Server Nanny</h1>
+                <div class="header-actions">
+                    <button class="btn btn-primary" id="addServerBtn">
+                        <i class="fas fa-plus"></i> Add Server
+                    </button>
+                    <button class="btn btn-secondary" id="settingsBtn">
+                        <i class="fas fa-cog"></i> Settings
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Startup Status Bar -->
+        <div id="startup-status" class="startup-status">
+            <div class="startup-status-content">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span id="startup-status-text">Initializing SUDO Server Nanny...</span>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <nav class="nav-menu">
+                    <a href="#" class="nav-item active" data-tab="servers">
+                        <i class="fas fa-server"></i> Servers
+                    </a>
+                    <a href="#" class="nav-item" data-tab="mods">
+                        <i class="fas fa-puzzle-piece"></i> Mod Manager
+                    </a>
+                    <a href="#" class="nav-item" data-tab="backups">
+                        <i class="fas fa-archive"></i> Backups
+                    </a>
+                    <a href="#" class="nav-item" data-tab="logs">
+                        <i class="fas fa-file-alt"></i> Logs
+                    </a>
+                    <a href="#" class="nav-item" data-tab="console">
+                        <i class="fas fa-terminal"></i> Console
+                    </a>
+                </nav>
+            </aside>
+
+            <!-- Content Area -->
+            <div class="content-area">
+                <!-- Servers Tab -->
+                <div id="servers-tab" class="tab-content active">
+                    <div class="tab-header">
+                        <h2>Server Instances</h2>
+                        <div class="tab-actions">
+                            <button class="btn btn-success" id="startAllBtn">
+                                <i class="fas fa-play"></i> Start All
+                            </button>
+                            <button class="btn btn-danger" id="stopAllBtn">
+                                <i class="fas fa-stop"></i> Stop All
+                            </button>
+                            <button class="btn btn-info" id="updateAllBtn">
+                                <i class="fas fa-sync"></i> Update All
+                            </button>
+                        </div>
+                    </div>
+                    <div id="servers-container" class="servers-grid">
+                        <!-- Server cards will be dynamically generated here -->
+                    </div>
+                </div>
+
+                <!-- Mod Manager Tab -->
+                <div id="mods-tab" class="tab-content">
+                    <div class="tab-header">
+                        <h2>Mod Manager</h2>
+                        <div class="tab-actions">
+                            <button class="btn btn-primary" id="addModBtn">
+                                <i class="fas fa-plus"></i> Add Mod
+                            </button>
+                            <button class="btn btn-info" id="updateModsBtn">
+                                <i class="fas fa-sync"></i> Update All Mods
+                            </button>
+                            <button class="btn btn-success" id="copyAllModsBtn">
+                                <i class="fas fa-copy"></i> Copy All Mods
+                            </button>
+                        </div>
+                    </div>
+                    <div id="mods-container">
+                        <!-- Mod management interface -->
+                    </div>
+                </div>
+
+                <!-- Backups Tab -->
+                <div id="backups-tab" class="tab-content">
+                    <div class="tab-header">
+                        <h2>Backup Management</h2>
+                        <div class="tab-actions">
+                            <button class="btn btn-success" id="createBackupBtn">
+                                <i class="fas fa-save"></i> Create Backup
+                            </button>
+                            <button class="btn btn-warning" id="cleanupBackupsBtn">
+                                <i class="fas fa-broom"></i> Cleanup Old
+                            </button>
+                        </div>
+                    </div>
+                    <div id="backups-container">
+                        <!-- Backup management interface -->
+                    </div>
+                </div>
+
+                <!-- Logs Tab -->
+                <div id="logs-tab" class="tab-content">
+                    <div class="tab-header">
+                        <h2>Server Logs</h2>
+                        <div class="tab-actions">
+                            <select id="logServerSelect" class="form-control">
+                                <option value="">Select Server</option>
+                            </select>
+                            <button class="btn btn-info" id="refreshLogsBtn">
+                                <i class="fas fa-sync"></i> Refresh
+                            </button>
+                            <button class="btn btn-secondary" id="clearLogsBtn">
+                                <i class="fas fa-trash"></i> Clear
+                            </button>
+                        </div>
+                    </div>
+                    <div id="logs-container">
+                        <pre id="logs-content"></pre>
+                    </div>
+                </div>
+
+                <!-- Console Tab -->
+                <div id="console-tab" class="tab-content">
+                    <div class="tab-header">
+                        <h2>SteamCMD Console</h2>
+                        <div class="tab-actions">
+                            <button class="btn btn-success" id="connectSteamBtn">
+                                <i class="fas fa-link"></i> Connect
+                            </button>
+                            <button class="btn btn-danger" id="disconnectSteamBtn">
+                                <i class="fas fa-unlink"></i> Disconnect
+                            </button>
+                        </div>
+                    </div>
+                    <div id="console-container">
+                        <div id="console-output"></div>
+                        <div class="console-input">
+                            <input type="text" id="console-command" placeholder="Enter SteamCMD command..." class="form-control">
+                            <button class="btn btn-primary" id="executeCommandBtn">
+                                <i class="fas fa-play"></i> Execute
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <!-- Server Configuration Modal -->
+    <div id="serverModal" class="modal">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h3 id="serverModalTitle">Add New Server</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <form id="serverForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="serverName">Server Name</label>
+                            <input type="text" id="serverName" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="instanceId">Instance ID</label>
+                            <input type="number" id="instanceId" class="form-control" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="serverPath">Server Path</label>
+                            <div class="input-group">
+                                <input type="text" id="serverPath" class="form-control" required>
+                                <button type="button" class="btn btn-secondary" id="browseServerPath">
+                                    <i class="fas fa-folder"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="port">Port</label>
+                            <input type="number" id="port" class="form-control" value="2302" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="profileName">Profile Name</label>
+                            <input type="text" id="profileName" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="configFile">Config File</label>
+                            <input type="text" id="configFile" class="form-control" value="serverDZ.cfg" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="steamUsername">Steam Username</label>
+                            <input type="text" id="steamUsername" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="steamPassword">Steam Password</label>
+                            <input type="password" id="steamPassword" class="form-control">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="modList">Mod List (one per line: ModID,FolderName)</label>
+                        <textarea id="modList" class="form-control" rows="5" 
+                                  placeholder="1559212036,CF&#10;1565871491,BuilderItems&#10;1646187754,BaseBuildingPlus"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cpuCount">CPU Count</label>
+                            <input type="number" id="cpuCount" class="form-control" value="4">
+                        </div>
+                        <div class="form-group">
+                            <label for="backupPath">Backup Path</label>
+                            <div class="input-group">
+                                <input type="text" id="backupPath" class="form-control">
+                                <button type="button" class="btn btn-secondary" id="browseBackupPath">
+                                    <i class="fas fa-folder"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="keysPath">Keys Folder Path</label>
+                            <div class="input-group">
+                                <input type="text" id="keysPath" class="form-control" placeholder="Path to server keys folder">
+                                <button type="button" class="btn btn-secondary" id="browseKeysPath">
+                                    <i class="fas fa-folder"></i>
+                                </button>
+                            </div>
+                            <small class="form-text text-muted">Folder where mod keys (.bikey files) will be copied</small>
+                        </div>
+                    </div>
+                    
+                    <!-- DayZ Launch Parameters Section -->
+                    <div class="form-section">
+                        <h4><i class="fas fa-rocket"></i> DayZ Launch Parameters</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="profilesPath">Profiles Path</label>
+                                <input type="text" id="profilesPath" class="form-control" value="ServerProfiles" placeholder="ServerProfiles">
+                                <small class="form-text text-muted">Path relative to server directory for profiles</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="missionPath">Mission Path</label>
+                                <input type="text" id="missionPath" class="form-control" placeholder="mpmissions\dayzOffline.chernarusplus">
+                                <small class="form-text text-muted">Mission folder path (optional)</small>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Launch Flags</label>
+                            <div class="checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="doLogs" checked>
+                                    <span class="checkmark"></span>
+                                    Enable Logs (-dologs)
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="adminLog" checked>
+                                    <span class="checkmark"></span>
+                                    Admin Log (-adminlog)
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="netLog">
+                                    <span class="checkmark"></span>
+                                    Network Log (-netlog)
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="freezeCheck" checked>
+                                    <span class="checkmark"></span>
+                                    Freeze Check (-freezecheck)
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="showScriptErrors">
+                                    <span class="checkmark"></span>
+                                    Show Script Errors (-showScriptErrors)
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="filePatching">
+                                    <span class="checkmark"></span>
+                                    File Patching (-filePatching)
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="verifySignatures">Verify Signatures</label>
+                                <select id="verifySignatures" class="form-control">
+                                    <option value="0">Disabled (0)</option>
+                                    <option value="1">Weak verification (1)</option>
+                                    <option value="2" selected>Full verification (2)</option>
+                                    <option value="3">Strict verification (3)</option>
+                                </select>
+                                <small class="form-text text-muted">BattlEye signature verification level</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="bePath">BattlEye Path</label>
+                                <input type="text" id="bePath" class="form-control" placeholder="battleye">
+                                <small class="form-text text-muted">Custom BattlEye folder path (optional)</small>
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="restartTimer">Auto Restart Timer (hours)</label>
+                                <input type="number" id="restartTimer" class="form-control" value="4" min="0" max="24">
+                                <small class="form-text text-muted">Automatic server restart interval (0 = disabled)</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="limitFPS">Limit FPS</label>
+                                <input type="number" id="limitFPS" class="form-control" placeholder="50" min="10" max="1000">
+                                <small class="form-text text-muted">Server FPS limit (optional)</small>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="customParameters">Custom Launch Parameters</label>
+                            <textarea id="customParameters" class="form-control" rows="3" 
+                                      placeholder="-scrAllowFileWrite -dologs -adminlog"></textarea>
+                            <small class="form-text text-muted">Additional custom parameters (one per line or space-separated)</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="launchParametersPreview">Generated Launch Command Preview</label>
+                            <textarea id="launchParametersPreview" class="form-control" rows="3" readonly 
+                                      style="background-color: #f8f9fa; font-family: monospace; font-size: 12px;"></textarea>
+                            <small class="form-text text-muted">Preview of the complete launch command that will be used</small>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelServerBtn">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveServerBtn">Save Server</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Application Settings</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <form id="settingsForm">
+                    <div class="form-group">
+                        <label for="steamCmdPath">SteamCMD Path</label>
+                        <div class="input-group">
+                            <input type="text" id="steamCmdPath" class="form-control">
+                            <button type="button" class="btn btn-secondary" id="browseSteamCmdPath">
+                                <i class="fas fa-folder"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="workshopPath">Workshop Path</label>
+                        <div class="input-group">
+                            <input type="text" id="workshopPath" class="form-control">
+                            <button type="button" class="btn btn-secondary" id="browseWorkshopPath">
+                                <i class="fas fa-folder"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="steamWebApiKey">Steam Web API Key</label>
+                        <input type="text" id="steamWebApiKey" class="form-control" 
+                               placeholder="Enter your Steam Web API Key for mod information">
+                    </div>
+                    <div class="form-group">
+                        <label for="defaultModCopyPath">Default Mod Copy Location</label>
+                        <div class="input-group">
+                            <input type="text" id="defaultModCopyPath" class="form-control" 
+                                   placeholder="Default location for copying mods">
+                            <button type="button" class="btn btn-secondary" id="browseDefaultModCopyPath">
+                                <i class="fas fa-folder"></i>
+                            </button>
+                        </div>
+                        <small class="form-text text-muted">This location will be pre-filled when copying mods</small>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="steamUsername">Steam Username (for SteamCMD)</label>
+                            <input type="text" id="steamUsername" class="form-control" 
+                                   placeholder="Steam username for mod downloads">
+                        </div>
+                        <div class="form-group">
+                            <label for="steamPassword">Steam Password (for SteamCMD)</label>
+                            <input type="password" id="steamPassword" class="form-control" 
+                                   placeholder="Steam password for mod downloads">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="backupRetentionDays">Backup Retention (days)</label>
+                            <input type="number" id="backupRetentionDays" class="form-control" value="5">
+                        </div>
+                        <div class="form-group">
+                            <label for="updateInterval">Auto-Update Schedule</label>
+                            <input type="text" id="updateInterval" class="form-control" 
+                                   placeholder="0 4 * * * (Cron format)" value="0 4 * * *">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="autoBackup"> Enable Auto Backup
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="autoModUpdate"> Enable Auto Mod Update
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="checkModsOnStartup"> Check Mods on Startup
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="updateModsBeforeServerStart"> Update Mods Before Server Start
+                            </label>
+                            <small class="form-text text-muted">Disable to avoid Steam rate limiting. Manually update mods when needed.</small>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelSettingsBtn">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveSettingsBtn">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="loading-overlay">
+        <div class="loading-content">
+            <i class="fas fa-spinner fa-spin fa-3x"></i>
+            <p>Processing...</p>
+        </div>
+    </div>
+
+    <!-- Mod Update Progress Modal -->
+    <div id="modUpdateProgress" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Updating Mods</h3>
+            </div>
+            <div class="modal-body">
+                <div class="progress-container">
+                    <div class="progress-info">
+                        <div class="current-mod">
+                            <i class="fas fa-puzzle-piece"></i>
+                            <span id="currentModText">Preparing...</span>
+                        </div>
+                        <div class="progress-stats">
+                            <span id="progressStats">0 / 0 mods</span>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-bar-container">
+                        <div class="progress-bar">
+                            <div id="progressBarFill" class="progress-bar-fill"></div>
+                        </div>
+                        <div class="progress-percentage">
+                            <span id="progressPercentage">0%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="mod-status-list">
+                        <div class="status-header">
+                            <h4>Mod Status</h4>
+                        </div>
+                        <div id="modStatusList" class="status-list">
+                            <!-- Mod status items will be added here -->
+                        </div>
+                    </div>
+                    
+                    <div class="progress-actions">
+                        <button id="cancelUpdateBtn" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mod Copy Modal -->
+    <div id="modCopyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Copy Mod</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="mod-copy-info">
+                    <div class="info-section">
+                        <h4><i class="fas fa-puzzle-piece"></i> <span id="copyModTitle">Mod Information</span></h4>
+                        <p><strong>Mod ID:</strong> <span id="copyModId"></span></p>
+                        <p><strong>Folder Name:</strong> <span id="copyModFolder"></span></p>
+                    </div>
+                    
+                    <div class="info-section">
+                        <h4><i class="fas fa-download"></i> Source Location</h4>
+                        <div class="path-display">
+                            <input type="text" id="modSourcePath" class="form-control" readonly>
+                            <button class="btn btn-secondary" id="openSourceBtn">
+                                <i class="fas fa-folder-open"></i> Open
+                            </button>
+                        </div>
+                        <small class="form-text text-muted">SteamCMD download location</small>
+                    </div>
+                    
+                    <div class="info-section">
+                        <h4><i class="fas fa-upload"></i> Destination</h4>
+                        <div class="path-display">
+                            <input type="text" id="modDestinationPath" class="form-control" placeholder="Select destination folder...">
+                            <button class="btn btn-secondary" id="browseDestinationBtn">
+                                <i class="fas fa-folder"></i> Browse
+                            </button>
+                        </div>
+                        <small class="form-text text-muted">Where to copy the mod files</small>
+                    </div>
+                    
+                    <div class="copy-options">
+                        <label>
+                            <input type="checkbox" id="overwriteExisting" checked> Overwrite existing files
+                        </label>
+                        <label>
+                            <input type="checkbox" id="createSubfolder" checked> Create mod subfolder
+                        </label>
+                    </div>
+                    
+                    <div class="copy-status" id="copyStatus" style="display: none;">
+                        <div class="alert">
+                            <i class="fas fa-info-circle"></i>
+                            <span id="copyStatusText"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelCopyBtn">Cancel</button>
+                <button type="button" class="btn btn-primary" id="startCopyBtn">
+                    <i class="fas fa-copy"></i> Copy Mod
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Copy All Mods Modal -->
+    <div id="copyAllModsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Copy All Mods</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="mod-copy-info">
+                    <div class="info-section">
+                        <h4><i class="fas fa-puzzle-piece"></i> Bulk Mod Copy</h4>
+                        <p id="modCountInfo"><strong>Total Mods:</strong> <span id="totalModCount">0</span></p>
+                        <p><strong>Source:</strong> SteamCMD Workshop folder</p>
+                    </div>
+                    
+                    <div class="info-section">
+                        <h4><i class="fas fa-upload"></i> Destination</h4>
+                        <div class="path-display">
+                            <input type="text" id="allModsDestinationPath" class="form-control" placeholder="Select destination folder...">
+                            <button class="btn btn-secondary" id="browseAllModsDestinationBtn">
+                                <i class="fas fa-folder"></i> Browse
+                            </button>
+                        </div>
+                        <small class="form-text text-muted">All mods will be copied to this location</small>
+                    </div>
+                    
+                    <div class="copy-options">
+                        <label>
+                            <input type="checkbox" id="overwriteExistingAll" checked> Overwrite existing files
+                        </label>
+                        <label>
+                            <input type="checkbox" id="createSubfolderAll" checked> Create mod subfolders (@ModID format)
+                        </label>
+                        <label>
+                            <input type="checkbox" id="saveLocationSetting" checked> Save this location in settings
+                        </label>
+                    </div>
+                    
+                    <div class="copy-progress" id="copyAllProgress" style="display: none;">
+                        <div class="progress-bar-container">
+                            <div class="progress-bar">
+                                <div id="copyAllProgressBarFill" class="progress-bar-fill"></div>
+                            </div>
+                            <div class="progress-percentage">
+                                <span id="copyAllProgressPercentage">0%</span>
+                            </div>
+                        </div>
+                        <div class="current-copy-info">
+                            <i class="fas fa-puzzle-piece"></i>
+                            <span id="currentCopyText">Preparing...</span>
+                        </div>
+                    </div>
+                    
+                    <div class="copy-status" id="copyAllStatus" style="display: none;">
+                        <div class="alert">
+                            <i class="fas fa-info-circle"></i>
+                            <span id="copyAllStatusText"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelCopyAllBtn">Cancel</button>
+                <button type="button" class="btn btn-primary" id="startCopyAllBtn">
+                    <i class="fas fa-copy"></i> Copy All Mods
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Server Config Editor Modal -->
+    <div id="serverConfigModal" class="modal">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h3>Server Configuration Editor</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="config-editor-info">
+                    <div class="info-section">
+                        <h4><i class="fas fa-server"></i> <span id="configServerName">Server Name</span></h4>
+                        <p><strong>Config File:</strong> <span id="configFileName">serverDZ.cfg</span></p>
+                        <p><strong>Path:</strong> <span id="configFilePath"></span></p>
+                    </div>
+                    
+                    <div class="editor-section">
+                        <div class="editor-toolbar">
+                            <button class="btn btn-secondary" id="reloadConfigBtn">
+                                <i class="fas fa-sync"></i> Reload
+                            </button>
+                            <button class="btn btn-info" id="validateConfigBtn">
+                                <i class="fas fa-check"></i> Validate
+                            </button>
+                            <span class="editor-status" id="configStatus">Ready</span>
+                        </div>
+                        
+                        <textarea id="serverConfigEditor" class="config-editor" placeholder="Server configuration will appear here..."></textarea>
+                    </div>
+                    
+                    <div class="config-help">
+                        <h5><i class="fas fa-info-circle"></i> Common Configuration Options</h5>
+                        <div class="help-grid">
+                            <div class="help-item">
+                                <strong>hostname</strong><br>
+                                <small>Server name shown in browser</small>
+                            </div>
+                            <div class="help-item">
+                                <strong>password</strong><br>
+                                <small>Server password (optional)</small>
+                            </div>
+                            <div class="help-item">
+                                <strong>maxPlayers</strong><br>
+                                <small>Maximum player count</small>
+                            </div>
+                            <div class="help-item">
+                                <strong>timeStampFormat</strong><br>
+                                <small>Log timestamp format</small>
+                            </div>
+                            <div class="help-item">
+                                <strong>logAverageFps</strong><br>
+                                <small>Log FPS to console (0/1)</small>
+                            </div>
+                            <div class="help-item">
+                                <strong>serverTime</strong><br>
+                                <small>Time acceleration</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelConfigBtn">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveConfigBtn">
+                    <i class="fas fa-save"></i> Save Configuration
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Available Modal -->
+    <div id="updateAvailableModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-download"></i> Update Available</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="update-info">
+                    <p><strong>A new version of DayZ Server Manager is available!</strong></p>
+                    <div class="version-info">
+                        <p><strong>New Version:</strong> <span id="newVersionNumber"></span></p>
+                        <p><strong>Current Version:</strong> <span id="currentVersionNumber"></span></p>
+                        <p><strong>Release Date:</strong> <span id="releaseDate"></span></p>
+                    </div>
+                    <div class="release-notes" id="releaseNotes">
+                        <h4>What's New:</h4>
+                        <div id="releaseNotesContent"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="updateLaterBtn">Update Later</button>
+                <button type="button" class="btn btn-primary" id="downloadUpdateBtn">
+                    <i class="fas fa-download"></i> Download Update
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Progress Modal -->
+    <div id="updateProgressModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-spinner fa-spin"></i> Downloading Update</h3>
+            </div>
+            <div class="modal-body">
+                <div class="update-progress">
+                    <p>Downloading the latest version...</p>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar">
+                            <div id="updateProgressBarFill" class="progress-bar-fill"></div>
+                        </div>
+                        <div class="progress-info">
+                            <span id="updateProgressPercentage">0%</span>
+                            <span id="updateProgressSpeed"></span>
+                        </div>
+                    </div>
+                    <div class="download-stats">
+                        <small id="updateDownloadStats">Preparing download...</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Ready Modal -->
+    <div id="updateReadyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-check-circle text-success"></i> Update Ready</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="update-ready-info">
+                    <p><strong>Update downloaded successfully!</strong></p>
+                    <p>The new version is ready to install. The application will restart to complete the update.</p>
+                    <div class="update-actions-info">
+                        <p><i class="fas fa-info-circle"></i> <strong>Note:</strong> Any running servers will continue running during the update.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="installLaterBtn">Install Later</button>
+                <button type="button" class="btn btn-success" id="installUpdateBtn">
+                    <i class="fas fa-sync-alt"></i> Install and Restart
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>
