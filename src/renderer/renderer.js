@@ -2363,8 +2363,11 @@ class DayZServerManagerUI {
 
     async checkForUpdates() {
         try {
-            this.sendStatusToRenderer('Checking for updates...');
-            await ipcRenderer.invoke('check-for-updates');
+            console.log('Checking for updates...');
+            const result = await ipcRenderer.invoke('check-for-updates');
+            if (result && result.success === false) {
+                this.showError(`Update check failed: ${result.error}`);
+            }
         } catch (error) {
             console.error('Error checking for updates:', error);
             this.showError('Failed to check for updates: ' + error.message);
