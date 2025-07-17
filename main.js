@@ -11,12 +11,14 @@ const BackupManager = require('./src/utils/BackupManager');
 class DayZServerManager {
     constructor() {
         this.mainWindow = null;
+        this.splashWindow = null;
         this.serverProcesses = new Map();
         this.configPath = path.join(__dirname, 'config');
         this.serversConfigPath = path.join(this.configPath, 'servers.json');
         this.settingsConfigPath = path.join(this.configPath, 'settings.json');
         this.modVersionsConfigPath = path.join(this.configPath, 'mod-versions.json');
         this.monitoringIntervals = new Map(); // Store monitoring intervals
+        this.isTransitioning = false; // Flag to prevent duplicate window creation
         this.defaultSettings = {
             steamCmdPath: 'C:\\SteamCMD',
             workshopPath: 'C:\\SteamCMD\\steamapps\\workshop\\content\\221100',
@@ -31,8 +33,80 @@ class DayZServerManager {
             updateModsBeforeServerStart: false,
             defaultModCopyPath: ''
         };
-        this.initializeApp();
-        this.setupAutoUpdater();
+        // Don't initialize here - wait for app.whenReady()
+    }
+
+    createSplashWindow() {
+        // Set up basic IPC handlers that splash screen needs immediately
+        if (!ipcMain.listenerCount('get-app-version')) {
+            ipcMain.handle('get-app-version', () => app.getVersion());
+        }
+
+        this.splashWindow = new BrowserWindow({
+            width: 500,
+            height: 350,
+            frame: false,
+            alwaysOnTop: true,
+            transparent: true,
+            resizable: false,
+            webPreferences: {
+                nodeIntegration: true,
+                contextIsolation: false
+            }
+        });
+
+        this.splashWindow.loadFile('src/renderer/splash.html');
+
+        // Center the splash window
+        this.splashWindow.center();
+
+        this.splashWindow.on('closed', () => {
+            this.splashWindow = null;
+        });
+
+        // Handle splash finished event
+        ipcMain.once('splash-finished', () => {
+            this.closeSplashAndShowMain();
+        });
+
+        return this.splashWindow;
+    }
+
+    async closeSplashAndShowMain() {
+        if (this.isTransitioning || this.mainWindow) {
+            return; // Prevent duplicate windows
+        }
+        
+        this.isTransitioning = true;
+        
+        if (this.splashWindow) {
+            this.splashWindow.close();
+            this.splashWindow = null;
+        }
+
+        // Create and show main window
+        this.createWindow();
+        this.setupMenu();
+        
+        this.isTransitioning = false;
+    }
+
+    sendSplashProgress(progress, message) {
+        if (this.splashWindow) {
+            this.splashWindow.webContents.send('splash-progress', { progress, message });
+        }
+    }
+
+    sendSplashComplete(message = 'Ready to launch!') {
+        if (this.splashWindow) {
+            this.splashWindow.webContents.send('splash-complete', { message });
+        }
+    }
+
+    sendSplashError(message) {
+        if (this.splashWindow) {
+            this.splashWindow.webContents.send('splash-error', { message });
+        }
     }
 
     setupAutoUpdater() {
@@ -114,20 +188,36 @@ class DayZServerManager {
     }
 
     async initializeApp() {
-        // Ensure config directory exists
-        await fs.ensureDir(this.configPath);
-        
-        // Load or create default configurations
-        await this.loadConfigurations();
-        
-        // Setup IPC handlers
-        this.setupIpcHandlers();
-        
-        // Create the main window
-        this.createWindow();
-        
-        // Setup application menu
-        this.setupMenu();
+        try {
+            // Setup auto-updater first
+            this.sendSplashProgress(10, 'Setting up auto-updater...');
+            this.setupAutoUpdater();
+            
+            // Ensure config directory exists
+            this.sendSplashProgress(20, 'Creating configuration directories...');
+            await fs.ensureDir(this.configPath);
+            
+            // Load or create default configurations
+            this.sendSplashProgress(40, 'Loading configuration files...');
+            await this.loadConfigurations();
+            
+            // Setup IPC handlers
+            this.sendSplashProgress(70, 'Setting up IPC handlers...');
+            this.setupIpcHandlers();
+            
+            // Final setup
+            this.sendSplashProgress(90, 'Finalizing initialization...');
+            
+            // Small delay to show completion
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Signal completion
+            this.sendSplashComplete('Initialization complete!');
+            
+        } catch (error) {
+            console.error('Error during initialization:', error);
+            this.sendSplashError(`Initialization failed: ${error.message}`);
+        }
     }
 
     async loadConfigurations() {
@@ -208,7 +298,7 @@ class DayZServerManager {
 
         // When the window is ready, start initial checks
         this.mainWindow.webContents.once('dom-ready', async () => {
-            if (this.settings.checkModsOnStartup) {
+            if (this.settings && this.settings.checkModsOnStartup) {
                 await this.performStartupChecks();
             }
         });
@@ -224,7 +314,10 @@ class DayZServerManager {
 
         // Check for mod updates on startup
         this.mainWindow.webContents.once('did-finish-load', () => {
-            this.checkForModUpdatesOnStartup();
+            // Only check for mod updates if settings are loaded
+            if (this.settings && this.settings.checkModsOnStartup) {
+                this.checkForModUpdatesOnStartup();
+            }
         });
     }
 
@@ -696,10 +789,6 @@ class Missions
                 console.error('Error installing update:', error);
                 return { success: false, error: error.message };
             }
-        });
-
-        ipcMain.handle('get-app-version', () => {
-            return app.getVersion();
         });
     }
 
@@ -1316,8 +1405,8 @@ class Missions
             // Send status to renderer
             this.mainWindow?.webContents.send('startup-status', 'Checking for mod updates...');
             
-            // Check if auto-update is enabled
-            if (!this.settings.autoModUpdate) {
+            // Check if settings are loaded and auto-update is enabled
+            if (!this.settings || !this.settings.autoModUpdate) {
                 console.log('Auto mod update is disabled');
                 this.mainWindow?.webContents.send('startup-status', 'Auto mod update disabled');
                 return;
@@ -1789,17 +1878,31 @@ class Missions
     }
 }
 
-// App event handlers
-app.whenReady().then(() => {
-    const manager = new DayZServerManager();
-    manager.createWindow();
-    manager.setupMenu();
+// Initialize the application
+let serverManager;
 
-    app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            manager.createWindow();
+app.whenReady().then(async () => {
+    if (serverManager) {
+        return; // Prevent multiple initializations
+    }
+    
+    serverManager = new DayZServerManager();
+    
+    // Create splash screen first
+    serverManager.createSplashWindow();
+    
+    // Wait a moment for splash to render, then start initialization
+    setTimeout(() => {
+        serverManager.initializeApp();
+    }, 500);
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        if (serverManager && !serverManager.isTransitioning && !serverManager.mainWindow) {
+            serverManager.createWindow();
         }
-    });
+    }
 });
 
 app.on('window-all-closed', () => {
@@ -1811,19 +1914,4 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
     // Cleanup: stop all running servers
     // This will be implemented based on the manager instance
-});
-
-// Initialize the application
-let serverManager;
-
-app.whenReady().then(() => {
-    serverManager = new DayZServerManager();
-});
-
-app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-        if (serverManager) {
-            serverManager.createWindow();
-        }
-    }
 });

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sudo Server Management Suite - Developer Edition</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f0f0;
+            color: #323130;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            background: #0078d4;
+            height: 4px;
+        }
+
+        .splash-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 60px 80px 40px 80px;
+        }
+
+        .logo-section {
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: 400;
+            color: #323130;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        .tagline {
+            font-size: 16px;
+            color: #605e5c;
+            font-weight: 400;
+            margin-bottom: 4px;
+        }
+
+        .branding {
+            font-size: 13px;
+            color: #8a8886;
+            font-weight: 400;
+            margin-top: 2px;
+        }
+
+        .content-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .loading-section {
+            max-width: 400px;
+        }
+
+        .progress-container {
+            margin-bottom: 16px;
+        }
+
+        .progress-bar {
+            width: 300px;
+            height: 2px;
+            background: #e1dfdd;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #0078d4;
+            width: 0%;
+            transition: width 0.2s ease;
+        }
+
+        .status-text {
+            font-size: 14px;
+            color: #605e5c;
+            font-weight: 400;
+            min-height: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e1dfdd;
+            border-radius: 50%;
+            border-top-color: #0078d4;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .footer {
+            margin-top: auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 20px;
+            border-top: 1px solid #e1dfdd;
+        }
+
+        .version {
+            font-size: 12px;
+            color: #8a8886;
+        }
+
+        .copyright {
+            font-size: 12px;
+            color: #8a8886;
+        }
+    </style>
+</head>
+<body>
+    <div class="header"></div>
+    
+    <div class="splash-container">
+        <div class="logo-section">
+            <div class="logo">DayZ Server Manager</div>
+            <div class="tagline">Professional server management and monitoring</div>
+            <div class="branding">Developed and designed by SudoArkMan for Sudo Game Servers</div>
+        </div>
+        
+        <div class="content-area">
+            <div class="loading-section">
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="status-text" id="statusText">
+                        <span class="spinner"></span>
+                        <span>Initializing application...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div class="copyright">© 2025 Sudo Game Servers. All rights reserved.</div>
+            <div class="version" id="version">v1.0.3</div>
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        // Progress tracking
+        let currentProgress = 0;
+        const progressFill = document.getElementById('progressFill');
+        const statusText = document.getElementById('statusText');
+
+        function updateProgress(progress, message) {
+            currentProgress = progress;
+            progressFill.style.width = progress + '%';
+            statusText.innerHTML = `<span class="spinner"></span><span>${message}</span>`;
+        }
+
+        function setComplete(message) {
+            progressFill.style.width = '100%';
+            statusText.innerHTML = `<span style="color: #107c10; margin-right: 8px;">✓</span><span>${message}</span>`;
+        }
+
+        // Listen for progress updates from main process
+        ipcRenderer.on('splash-progress', (event, data) => {
+            updateProgress(data.progress, data.message);
+        });
+
+        ipcRenderer.on('splash-complete', (event, data) => {
+            setComplete(data.message || 'Ready to launch!');
+            
+            // Longer delay to ensure splash is visible
+            setTimeout(() => {
+                ipcRenderer.send('splash-finished');
+            }, 1500);
+        });
+
+        ipcRenderer.on('splash-error', (event, data) => {
+            statusText.innerHTML = `<span style="color: #d13438; margin-right: 8px;">✗</span><span>Error: ${data.message}</span>`;
+            progressFill.style.background = '#d13438';
+        });
+
+        // Get app version
+        ipcRenderer.invoke('get-app-version').then(version => {
+            document.getElementById('version').textContent = `v${version}`;
+        });
+
+        // Initial progress
+        updateProgress(0, 'Starting DayZ Server Manager...');
+    </script>
+</body>
+</html>
