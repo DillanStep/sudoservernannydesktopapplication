@@ -8,6 +8,7 @@ const fetch = require('node-fetch');
 const pidusage = require('pidusage');
 const BackupManager = require('./src/utils/BackupManager');
 const ServerRConManager = require('./src/utils/ServerRConManager');
+const BattlEyeManager = require('./src/utils/BattlEyeManager');
 
 class DayZServerManager {
     constructor() {
@@ -27,6 +28,7 @@ class DayZServerManager {
         this.monitoringIntervals = new Map(); // Store monitoring intervals
         this.restartSchedules = new Map(); // Store restart schedules and timers
         this.rconManager = new ServerRConManager(); // RCon management
+        this.battleEyeManager = new BattlEyeManager(); // BattlEye management
         this.isTransitioning = false; // Flag to prevent duplicate window creation
         this.defaultSettings = {
             steamCmdPath: 'C:\\SteamCMD',
@@ -606,6 +608,12 @@ class DayZServerManager {
         ipcMain.handle('rcon-kick-player', async (event, serverId, playerId, reason) => await this.rconKickPlayer(serverId, playerId, reason));
         ipcMain.handle('wipe-server-storage', async (event, serverId) => await this.wipeServerStorage(serverId));
 
+        // BattlEye management
+        ipcMain.handle('diagnose-battleye', async (event, serverId) => await this.diagnoseBattlEye(serverId));
+        ipcMain.handle('setup-battleye', async (event, serverId) => await this.setupBattlEye(serverId));
+        ipcMain.handle('fix-battleye-launch-params', async (event, serverId) => await this.fixBattlEyeLaunchParams(serverId));
+        ipcMain.handle('get-battleye-troubleshooting', () => this.battleEyeManager.getTroubleshootingSteps());
+
         // File operations
         ipcMain.handle('select-folder', async () => {
             const result = await dialog.showOpenDialog(this.mainWindow, {
@@ -1049,6 +1057,14 @@ class Missions
                 throw new Error(`DayZ Server executable not found at: ${serverExePath}`);
             }
 
+            // Helper function to properly quote paths that contain spaces
+            const quotePath = (filePath) => {
+                if (filePath.includes(' ')) {
+                    return `"${filePath}"`;
+                }
+                return filePath;
+            };
+
             // Build command arguments using launch parameters
             const launchParams = server.launchParams || {};
             const profilesPath = launchParams.profilesPath || 'ServerProfiles';
@@ -1057,12 +1073,12 @@ class Missions
                 `-config=${server.configFile || 'serverDZ.cfg'}`,
                 `-port=${server.port}`,
                 `-cpuCount=${server.cpuCount || 4}`,
-                `-profiles=${profilesPath}`
+                `-profiles=${quotePath(profilesPath)}`
             ];
 
             // Add mission path if specified
             if (launchParams.missionPath) {
-                args.push(`-mission=${launchParams.missionPath}`);
+                args.push(`-mission=${quotePath(launchParams.missionPath)}`);
             }
 
             // Add verification signatures
@@ -1071,9 +1087,24 @@ class Missions
                 args.push(`-verifySignatures=${verifySignatures}`);
             }
 
-            // Add BattlEye path
-            const bePath = launchParams.bePath || 'battleye';
-            args.push(`-BEpath=${bePath}`);
+            // Add BattlEye path - properly handle paths with spaces
+            let bePath = launchParams.bePath || 'battleye';
+            
+            // If the BattlEye path is relative, resolve it against the server path
+            if (!path.isAbsolute(bePath)) {
+                bePath = path.join(server.serverPath, bePath);
+            }
+            
+            // Normalize the path for Windows and ensure proper format
+            bePath = path.normalize(bePath);
+            
+            // Always quote the BattlEye path if it contains spaces or special characters
+            const needsQuoting = bePath.includes(' ') || bePath.includes('&') || bePath.includes('"');
+            if (needsQuoting) {
+                args.push(`-BEpath="${bePath}"`);
+            } else {
+                args.push(`-BEpath=${bePath}`);
+            }
 
             // Add FPS limit if specified
             if (launchParams.limitFPS && launchParams.limitFPS > 0) {
@@ -1135,7 +1166,15 @@ class Missions
                     }
                     
                     if (modPaths.length > 0) {
-                        const modFolders = modPaths.join(';');
+                        // Quote individual mod paths that contain spaces, then join with semicolons
+                        const quotedModPaths = modPaths.map(modPath => {
+                            // If it's an absolute path with spaces, quote it
+                            if (path.isAbsolute(modPath) && modPath.includes(' ')) {
+                                return `"${modPath}"`;
+                            }
+                            return modPath;
+                        });
+                        const modFolders = quotedModPaths.join(';');
                         args.push(`-mod=${modFolders}`);
                         console.log(`Final mod parameter: -mod=${modFolders}`);
                     } else {
@@ -1182,7 +1221,15 @@ class Missions
                     }
                     
                     if (serverModPaths.length > 0) {
-                        const serverModFolders = serverModPaths.join(';');
+                        // Quote individual server mod paths that contain spaces, then join with semicolons
+                        const quotedServerModPaths = serverModPaths.map(modPath => {
+                            // If it's an absolute path with spaces, quote it
+                            if (path.isAbsolute(modPath) && modPath.includes(' ')) {
+                                return `"${modPath}"`;
+                            }
+                            return modPath;
+                        });
+                        const serverModFolders = quotedServerModPaths.join(';');
                         args.push(`-serverMod=${serverModFolders}`);
                         console.log(`Final server mod parameter: -serverMod=${serverModFolders}`);
                     } else {
@@ -1191,7 +1238,11 @@ class Missions
                 }
             }
 
-            console.log(`Starting DayZ Server with args: ${args.join(' ')}`);
+            console.log(`Starting DayZ Server:`);
+            console.log(`  Executable: "${serverExePath}"`);
+            console.log(`  Working Directory: "${server.serverPath}"`);
+            console.log(`  Arguments: [${args.map(arg => `"${arg}"`).join(', ')}]`);
+            console.log(`  Full Command: "${serverExePath}" ${args.join(' ')}`);
 
             const serverProcess = spawn(serverExePath, args, {
                 cwd: server.serverPath,
@@ -1279,11 +1330,18 @@ class Missions
             });
 
             serverProcess.on('error', (error) => {
-                console.error(`Server ${serverId} error:`, error);
+                console.error(`Server ${serverId} spawn error:`, error);
+                console.error(`Failed command: "${serverExePath}" ${args.join(' ')}`);
+                console.error(`Working directory: "${server.serverPath}"`);
+                
                 this.stopServerMonitoring(serverId);
                 this.serverProcesses.delete(serverId);
                 this.mainWindow?.webContents.send('server-status-changed', { serverId, status: 'stopped' });
-                throw error;
+                this.mainWindow?.webContents.send('server-log', { 
+                    serverId, 
+                    data: `[ERROR] Failed to start server: ${error.message}\n[ERROR] Command: "${serverExePath}" ${args.join(' ')}\n` 
+                });
+                throw new Error(`Failed to spawn server process: ${error.message}`);
             });
 
             return true;
@@ -2687,6 +2745,92 @@ class Missions
             return await this.rconManager.wipeServerStorage(server);
         } catch (error) {
             console.error('Error wiping server storage:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // BattlEye Management Methods
+    async diagnoseBattlEye(serverId) {
+        try {
+            const server = this.servers.find(s => s.id === serverId);
+            if (!server) {
+                return { success: false, error: 'Server not found' };
+            }
+
+            if (!server.serverPath) {
+                return { success: false, error: 'Server path not configured' };
+            }
+
+            // Determine BattlEye path from server configuration or use default
+            const battleEyePath = server.battleEyePath || path.join(server.serverPath, 'battleye');
+            
+            const results = await this.battleEyeManager.diagnoseBattlEye(server.serverPath, battleEyePath);
+            
+            return { success: true, results };
+        } catch (error) {
+            console.error('Error diagnosing BattlEye:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async setupBattlEye(serverId) {
+        try {
+            const server = this.servers.find(s => s.id === serverId);
+            if (!server) {
+                return { success: false, error: 'Server not found' };
+            }
+
+            if (!server.serverPath) {
+                return { success: false, error: 'Server path not configured' };
+            }
+
+            // Determine BattlEye path from server configuration or use default
+            const battleEyePath = server.battleEyePath || path.join(server.serverPath, 'battleye');
+            
+            const results = await this.battleEyeManager.setupBattlEye(battleEyePath);
+            
+            // Update server configuration with BattlEye path if successful
+            if (results.success && !server.battleEyePath) {
+                server.battleEyePath = battleEyePath;
+                await this.saveServer(server);
+            }
+            
+            return results;
+        } catch (error) {
+            console.error('Error setting up BattlEye:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async fixBattlEyeLaunchParams(serverId) {
+        try {
+            const server = this.servers.find(s => s.id === serverId);
+            if (!server) {
+                return { success: false, error: 'Server not found' };
+            }
+
+            if (!server.serverPath) {
+                return { success: false, error: 'Server path not configured' };
+            }
+
+            // Get current launch parameters
+            const currentParams = server.launchParameters || '';
+            
+            // Fix the launch parameters
+            const results = this.battleEyeManager.fixLaunchParameters(currentParams, server.serverPath);
+            
+            // Update server configuration if changes were made
+            if (results.changes.length > 0) {
+                server.launchParameters = results.fixed;
+                await this.saveServer(server);
+                results.updated = true;
+            } else {
+                results.updated = false;
+            }
+            
+            return { success: true, results };
+        } catch (error) {
+            console.error('Error fixing BattlEye launch parameters:', error);
             return { success: false, error: error.message };
         }
     }

@@ -611,6 +611,9 @@ class DayZServerManagerUI {
                     <button class="btn btn-success" onclick="app.pullModKeys('${server.id}')" title="Copy all mod keys from installed mods to server keys folder">
                         <i class="fas fa-download"></i> Pull Mod Keys
                     </button>
+                    <button class="btn btn-warning" onclick="app.diagnoseBattlEye('${server.id}')" title="Diagnose BattlEye configuration and setup">
+                        <i class="fas fa-shield-alt"></i> BattlEye
+                    </button>
                     ${server.rconPassword ? `
                     <button class="btn btn-orange" onclick="app.showRConModal('${server.id}')" title="RCon Server Management">
                         <i class="fas fa-terminal"></i> RCon
@@ -618,6 +621,9 @@ class DayZServerManagerUI {
                     ` : ''}
                     <button class="btn btn-danger" onclick="app.wipeServerStorage('${server.id}')" title="Wipe server storage folder">
                         <i class="fas fa-eraser"></i> Wipe Storage
+                    </button>
+                    <button class="btn btn-info" onclick="app.diagnoseBattlEye('${server.id}')" title="Diagnose BattlEye Issues">
+                        <i class="fas fa-shield-alt"></i> BattlEye
                     </button>
                     <button class="btn btn-secondary" onclick="app.editServer('${server.id}')">
                         <i class="fas fa-edit"></i> Edit
@@ -3552,6 +3558,247 @@ class DayZServerManagerUI {
             );
         } catch (error) {
             this.showError(`Wipe error: ${error.message}`);
+        }
+    }
+
+    // BattlEye Diagnostic Methods
+    async diagnoseBattlEye(serverId) {
+        try {
+            if (this.isNotificationActive()) {
+                console.log('Cannot diagnose BattlEye while notification is active');
+                return;
+            }
+
+            const server = this.servers.find(s => s.id === serverId);
+            if (!server) {
+                this.showError('Server not found');
+                return;
+            }
+
+            this.showNotification('Diagnosing BattlEye Configuration', 'info');
+            
+            const result = await ipcRenderer.invoke('diagnose-battleye', serverId);
+            
+            this.hideNotification();
+            
+            if (result.success) {
+                this.showBattlEyeDiagnosticModal(server, result.results);
+            } else {
+                this.showError(`BattlEye diagnostic failed: ${result.error}`);
+            }
+        } catch (error) {
+            this.hideNotification();
+            this.showError(`BattlEye diagnostic error: ${error.message}`);
+        }
+    }
+
+    showBattlEyeDiagnosticModal(server, diagnostics) {
+        const modal = document.createElement('div');
+        modal.className = 'modal show';
+        modal.style.zIndex = '10001';
+        
+        const statusColor = diagnostics.status === 'ok' ? '#38a169' : 
+                           diagnostics.status === 'warning' ? '#d69e2e' : '#e53e3e';
+        
+        const issuesHtml = diagnostics.issues.length > 0 ? `
+            <div class="alert error" style="margin: 1rem 0;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <strong>Issues Found:</strong>
+                <ul style="margin: 0.5rem 0 0 1.5rem;">
+                    ${diagnostics.issues.map(issue => `<li>${issue.message}</li>`).join('')}
+                </ul>
+            </div>
+        ` : '';
+
+        const warningsHtml = diagnostics.warnings.length > 0 ? `
+            <div class="alert warning" style="margin: 1rem 0;">
+                <i class="fas fa-exclamation-circle"></i>
+                <strong>Warnings:</strong>
+                <ul style="margin: 0.5rem 0 0 1.5rem;">
+                    ${diagnostics.warnings.map(warning => `<li>${warning.message}</li>`).join('')}
+                </ul>
+            </div>
+        ` : '';
+
+        const filesHtml = `
+            <div style="margin: 1rem 0;">
+                <h5 style="color: #63b3ed; margin-bottom: 0.5rem;">File Status:</h5>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <strong style="color: #38a169;">Present (${diagnostics.files.present.length}):</strong>
+                        <ul style="margin: 0.25rem 0 0 1rem; font-size: 0.9rem;">
+                            ${diagnostics.files.present.map(file => `<li style="color: #68d391;">${file}</li>`).join('')}
+                        </ul>
+                    </div>
+                    <div>
+                        <strong style="color: #e53e3e;">Missing (${diagnostics.files.missing.length}):</strong>
+                        <ul style="margin: 0.25rem 0 0 1rem; font-size: 0.9rem;">
+                            ${diagnostics.files.missing.map(file => `<li style="color: #fc8181;">${file}</li>`).join('')}
+                        </ul>
+                    </div>
+                </div>
+                ${diagnostics.files.outdated.length > 0 ? `
+                    <div style="margin-top: 0.5rem;">
+                        <strong style="color: #d69e2e;">Outdated (${diagnostics.files.outdated.length}):</strong>
+                        <ul style="margin: 0.25rem 0 0 1rem; font-size: 0.9rem;">
+                            ${diagnostics.files.outdated.map(file => `<li style="color: #f6ad55;">${file}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+
+        const actionsHtml = `
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem;">
+                ${diagnostics.issues.length > 0 ? `
+                    <button class="btn btn-success" onclick="app.setupBattlEye('${server.id}')">
+                        <i class="fas fa-tools"></i> Auto-Setup BattlEye
+                    </button>
+                ` : ''}
+                <button class="btn btn-info" onclick="app.fixBattlEyeLaunchParams('${server.id}')">
+                    <i class="fas fa-wrench"></i> Fix Launch Parameters
+                </button>
+                <button class="btn btn-warning" onclick="app.showBattlEyeTroubleshooting()">
+                    <i class="fas fa-question-circle"></i> Troubleshooting
+                </button>
+            </div>
+        `;
+
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 800px;">
+                <div class="modal-header">
+                    <h3><i class="fas fa-shield-alt"></i> BattlEye Diagnostic - ${server.name}</h3>
+                    <span class="close" onclick="this.closest('.modal').remove()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                        <span style="font-weight: 600;">Status:</span>
+                        <span style="color: ${statusColor}; font-weight: 600; text-transform: uppercase;">
+                            <i class="fas fa-${diagnostics.status === 'ok' ? 'check-circle' : diagnostics.status === 'warning' ? 'exclamation-triangle' : 'times-circle'}"></i>
+                            ${diagnostics.status}
+                        </span>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <h5 style="color: #63b3ed; margin-bottom: 0.5rem;">Paths:</h5>
+                        <div style="font-family: 'Courier New', monospace; font-size: 0.8rem; background: #1a202c; padding: 0.5rem; border-radius: 4px;">
+                            <div><strong>Server Path:</strong> ${diagnostics.paths.serverPath}</div>
+                            <div><strong>BattlEye Path:</strong> ${diagnostics.paths.resolvedBEPath}</div>
+                        </div>
+                    </div>
+
+                    ${issuesHtml}
+                    ${warningsHtml}
+                    ${filesHtml}
+                    ${actionsHtml}
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+    }
+
+    async setupBattlEye(serverId) {
+        try {
+            this.showNotification('Setting up BattlEye', 'info');
+            
+            const result = await ipcRenderer.invoke('setup-battleye', serverId);
+            
+            this.hideNotification();
+            
+            if (result.success) {
+                this.showSuccess(`BattlEye setup completed successfully!\n\nActions performed:\n${result.actions.join('\n')}`);
+                // Re-diagnose to show updated status
+                setTimeout(() => this.diagnoseBattlEye(serverId), 1000);
+            } else {
+                this.showError(`BattlEye setup failed: ${result.message}`);
+            }
+        } catch (error) {
+            this.hideNotification();
+            this.showError(`BattlEye setup error: ${error.message}`);
+        }
+    }
+
+    async fixBattlEyeLaunchParams(serverId) {
+        try {
+            this.showNotification('Fixing Launch Parameters', 'info');
+            
+            const result = await ipcRenderer.invoke('fix-battleye-launch-params', serverId);
+            
+            this.hideNotification();
+            
+            if (result.success) {
+                if (result.results.updated) {
+                    this.showSuccess(`Launch parameters updated!\n\nChanges made:\n${result.results.changes.join('\n')}\n\nNew parameters:\n${result.results.fixed}`);
+                } else {
+                    this.showInfo('Launch parameters are already correctly configured.');
+                }
+                
+                if (result.results.suggestions.length > 0) {
+                    setTimeout(() => {
+                        this.showInfo(`Suggestions:\n${result.results.suggestions.join('\n')}`);
+                    }, 2000);
+                }
+            } else {
+                this.showError(`Failed to fix launch parameters: ${result.error}`);
+            }
+        } catch (error) {
+            this.hideNotification();
+            this.showError(`Launch parameter fix error: ${error.message}`);
+        }
+    }
+
+    async showBattlEyeTroubleshooting() {
+        try {
+            const steps = await ipcRenderer.invoke('get-battleye-troubleshooting');
+            
+            const modal = document.createElement('div');
+            modal.className = 'modal show';
+            modal.style.zIndex = '10002';
+
+            const stepsHtml = steps.map(step => `
+                <div style="margin-bottom: 1.5rem; padding: 1rem; background: #2d3748; border-radius: 6px; border-left: 4px solid #3182ce;">
+                    <h5 style="color: #63b3ed; margin-bottom: 0.5rem;">
+                        <span style="background: #3182ce; color: white; padding: 0.2rem 0.5rem; border-radius: 50%; margin-right: 0.5rem; font-size: 0.8rem;">${step.step}</span>
+                        ${step.title}
+                    </h5>
+                    <p style="margin-bottom: 0.5rem; color: #e2e8f0;">${step.description}</p>
+                    <p style="margin: 0; color: #a0aec0; font-style: italic; font-size: 0.9rem;"><strong>Action:</strong> ${step.action}</p>
+                </div>
+            `).join('');
+
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 700px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-question-circle"></i> BattlEye Troubleshooting Guide</h3>
+                        <span class="close" onclick="this.closest('.modal').remove()">&times;</span>
+                    </div>
+                    <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                        <div class="alert" style="margin-bottom: 1.5rem;">
+                            <i class="fas fa-info-circle"></i>
+                            Follow these steps in order to resolve BattlEye initialization issues.
+                        </div>
+                        ${stepsHtml}
+                        <div style="margin-top: 1.5rem; padding: 1rem; background: #2d3748; border-radius: 6px;">
+                            <h5 style="color: #68d391; margin-bottom: 0.5rem;">
+                                <i class="fas fa-external-link-alt"></i> Official Resources
+                            </h5>
+                            <p style="margin: 0; color: #e2e8f0;">
+                                <a href="https://www.battleye.com/downloads/" target="_blank" style="color: #63b3ed;">
+                                    Download latest BattlEye files
+                                </a><br>
+                                <a href="https://community.bistudio.com/wiki/BattlEye" target="_blank" style="color: #63b3ed;">
+                                    BattlEye Documentation
+                                </a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+        } catch (error) {
+            this.showError(`Failed to load troubleshooting guide: ${error.message}`);
         }
     }
 }
